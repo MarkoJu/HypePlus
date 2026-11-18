@@ -9,6 +9,7 @@
 #include <QGuiApplication>
 #include <QCache>
 #include <QClipboard>
+#include <QColorDialog>
 #include <QCryptographicHash>
 #include <QDataStream>
 #include <QDateTime>
@@ -615,6 +616,68 @@ QColor Deck::foreground() const { return QColor(palette()["foreground"].toString
 QColor Deck::accent() const { return QColor(palette()["accent"].toString()); }
 void Deck::chooseTheme(const QString &name) {
     replaceHeader(themedHeader(m_parsed.header, name, m_themes.value(name)));
+}
+QVariantMap Deck::themeColors(const QString &name) const {
+    QVariantMap colors{
+        {"background", "#1a1b26"}, {"foreground", "#c0caf5"}, {"accent", "#7aa2f7"},
+        {"green", "#9ece6a"},      {"red", "#f7768e"},        {"yellow", "#e0af68"},
+        {"magenta", "#bb9af7"},    {"cyan", "#7dcfff"},       {"dark_foreground", "#787c99"}};
+    const QString target = name.isEmpty() ? themeName() : name;
+    if (m_themes.contains(target)) {
+        for (const auto &[key, value] : readThemeColors(m_themes.value(target)))
+            colors[key] = value;
+    } else if (name.isEmpty()) {
+        const auto current = palette();
+        for (auto it = colors.begin(); it != colors.end(); ++it)
+            if (current.contains(it.key()))
+                it.value() = current.value(it.key());
+    }
+    return colors;
+}
+QString Deck::pickColor(const QString &initialHex) const {
+    const QColor initial(initialHex);
+    const QColor chosen = QColorDialog::getColor(initial.isValid() ? initial : QColor("#0067a5"),
+                                                 nullptr, QStringLiteral("Choose Theme Color"));
+    return chosen.isValid() ? chosen.name(QColor::HexRgb) : QString();
+}
+QString Deck::saveTheme(const QString &rawName, const QVariantMap &colors) {
+    const QString name = rawName.trimmed().toLower();
+    static const QRegularExpression validName(QStringLiteral("^[a-z0-9][a-z0-9_-]{0,48}$"));
+    if (!validName.match(name).hasMatch())
+        return QStringLiteral("Use lowercase letters, numbers, hyphens, or underscores for the theme name.");
+    static const QStringList keys{
+        QStringLiteral("background"), QStringLiteral("foreground"), QStringLiteral("accent"),
+        QStringLiteral("green"),      QStringLiteral("red"),        QStringLiteral("yellow"),
+        QStringLiteral("magenta"),    QStringLiteral("cyan"),       QStringLiteral("dark_foreground")};
+    static const QRegularExpression validHex(QStringLiteral("^#[0-9a-fA-F]{6}$"));
+    QByteArray toml;
+    for (const QString &key : keys) {
+        const QString hex = colors.value(key).toString().trimmed().toLower();
+        if (!validHex.match(hex).hasMatch())
+            return QStringLiteral("Invalid #rrggbb hex color for ") + key + QStringLiteral(".");
+        toml += key.toUtf8() + " = \"" + hex.toUtf8() + "\"\n";
+    }
+    QStringList dirs{QDir::homePath() + "/.config/omarchy/themes/" + name};
+    const QString bundledRoot = QCoreApplication::applicationDirPath() + "/../themes";
+    if (QFileInfo(bundledRoot).isDir() && QFileInfo(bundledRoot).isWritable())
+        dirs << bundledRoot + "/" + name;
+    bool written = false;
+    for (const QString &dir : dirs) {
+        if (!QDir().mkpath(dir))
+            continue;
+        QSaveFile file(dir + "/colors.toml");
+        if (file.open(QIODevice::WriteOnly) && file.write(toml) == toml.size() && file.commit())
+            written = true;
+    }
+    if (!written)
+        return QStringLiteral("Could not write theme colors.toml.");
+    discoverThemes();
+    emit themesChanged();
+    m_paletteHeader.clear();
+    m_paletteCache.clear();
+    chooseTheme(name);
+    setStatus(QStringLiteral("Saved theme ") + name);
+    return {};
 }
 QStringList Deck::mediaPositions() const { return ::mediaPositions(); }
 QVariantMap Deck::media() const {

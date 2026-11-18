@@ -18,8 +18,10 @@ Upstream Hype was written exclusively for the Omarchy Linux desktop (relying on 
 - **Direct GUI Launch on macOS ([src/main.cpp](src/main.cpp)):** Running bare `hype` or `hype+` from the macOS terminal launches the GUI editor directly (while `hype -h` or `hype help` prints CLI help).
 - **macOS Test Suite Compatibility ([tests/test_cli.py](tests/test_cli.py), [tests/test_shutdown.py](tests/test_shutdown.py)):** Resolves macOS `/var` → `/private/var` temporary directory symlinks and `/bin/sleep` path differences so the full test suite passes on macOS.
 
-### 2. Bundled Color Themes (`themes/`)
-- Ships **13 ready-to-use themes** out of the box (`catppuccin`, `catppuccin-latte`, `everforest`, `gruvbox`, `kanagawa`, `lecture`, `matte-black`, `nord`, `osaka-jade`, `paper`, `ristretto`, `rose-pine`, `tokyo-night`) discovered relative to the app bundle/binary ([src/deck.cpp](src/deck.cpp)), so the toolbar Theme picker works immediately on macOS without `~/.local/share/omarchy/themes/`.
+### 2. Built-in Theme Creator & Editor (`+ Create theme…` / `Edit current theme…`)
+- **Create & Edit Themes Directly in the UI ([src/Main.qml](src/Main.qml), [src/deck.cpp](src/deck.cpp)):** The toolbar Theme selector now includes **`+ Create theme…`** and **`Edit current theme…`** at the bottom of the dropdown.
+- **Full 9-Property Palette Editor & macOS Color Wheel:** Customize all 9 theme color roles (`background`, `foreground`, `accent`, `cyan`, `green`, `yellow`, `magenta`, `red`, `dark_foreground`) via `#rrggbb` hex inputs or by clicking any color swatch to open the native macOS color picker (`QColorDialog`), with a live slide and code preview card inside the dialog.
+- **13 Bundled Color Themes (`themes/`):** Ships 13 ready-to-use themes out of the box (`catppuccin`, `catppuccin-latte`, `everforest`, `gruvbox`, `kanagawa`, `lecture`, `matte-black`, `nord`, `osaka-jade`, `paper`, `ristretto`, `rose-pine`, `tokyo-night`) discovered relative to the app bundle/binary ([src/deck.cpp](src/deck.cpp)), so the toolbar Theme picker works immediately on macOS without `~/.local/share/omarchy/themes/`.
 
 ### 3. Academic `lecture` Theme & Renderer Enhancements ([src/renderer.cpp](src/renderer.cpp), [src/syntax.cpp](src/syntax.cpp))
 - **White Slide Canvas & Academic Palette (`themes/lecture/colors.toml`):** Pure `#ffffff` background, `#0067a5` blue headings, `#00798c` teal subheadings, and `#1e293b` dark slate body text.

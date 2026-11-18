@@ -51,7 +51,7 @@ ApplicationWindow {
     // Remember intentional focus changes; moving the window may briefly clear activeFocus.
     property string focusedEditor: ""
     property bool presenting: false
-    readonly property bool popupOpen: pasteDialog.visible || compressionDialog.visible ||
+    readonly property bool popupOpen: pasteDialog.visible || compressionDialog.visible || themeDialog.visible ||
         historyDialog.visible || closeDialog.visible || shortcutsOverlay.visible || themes.popup.visible || fonts.popup.visible ||
         slideMenu.visible || fileMenu.visible || slideBar.menuOpen || sourceBar.menuOpen
     property var compressionReturnFocus: null
@@ -692,6 +692,231 @@ ApplicationWindow {
             }
         }
     }
+    Popup {
+        id: themeDialog; objectName: "themeDialog"
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        modal: true; focus: true; padding: 24
+        closePolicy: Popup.CloseOnEscape
+        width: Math.min(680, parent.width - 48)
+        property bool creatingNew: false
+        property string error: ""
+        property var colors: ({
+            "background": "#ffffff", "foreground": "#1e293b", "accent": "#0067a5",
+            "cyan": "#00798c", "green": "#2e7d32", "yellow": "#c46d00",
+            "magenta": "#6b3fa0", "red": "#c62828", "dark_foreground": "#52606d"
+        })
+        readonly property var fields: [
+            { key: "background", label: "Background", hint: "Slide canvas" },
+            { key: "foreground", label: "Foreground", hint: "Body text & tables" },
+            { key: "accent", label: "Accent", hint: "Headings & bold" },
+            { key: "cyan", label: "Cyan", hint: "Subheadings & symbols" },
+            { key: "green", label: "Green", hint: "Code strings" },
+            { key: "yellow", label: "Yellow", hint: "Code types & classes" },
+            { key: "magenta", label: "Magenta", hint: "Code keywords" },
+            { key: "red", label: "Red", hint: "Numbers & variables" },
+            { key: "dark_foreground", label: "Muted", hint: "Comments & captions" }
+        ]
+        function openEditor(name, isNew) {
+            creatingNew = isNew
+            error = ""
+            const loaded = deck.themeColors(name)
+            colors = Object.assign({}, loaded)
+            themeNameInput.text = isNew ? (name ? name + "-custom" : "custom-theme") : (name || deck.themeName)
+            open()
+            themeNameInput.forceActiveFocus()
+            if (isNew) themeNameInput.selectAll()
+        }
+        function setColor(key, value) {
+            let next = Object.assign({}, colors)
+            next[key] = value
+            colors = next
+            error = ""
+        }
+        function save() {
+            error = deck.saveTheme(themeNameInput.text, colors)
+            if (!error) close()
+        }
+        background: Rectangle { color: win.ui.panel; border.color: win.ui.windowBorder; border.width: 2; radius: Math.max(6, win.rounding) }
+        Overlay.modal: Rectangle { color: "#660b0d14" }
+        contentItem: ColumnLayout {
+            spacing: 16
+            RowLayout {
+                Layout.fillWidth: true; spacing: 12
+                ColumnLayout {
+                    spacing: 2; Layout.fillWidth: true
+                    Label {
+                        text: themeDialog.creatingNew ? "Create Theme" : "Edit Theme"
+                        color: win.ui.foreground; font.pixelSize: 20; font.bold: true
+                    }
+                    Label {
+                        text: "Customize all 9 theme color properties or load an existing preset"
+                        color: win.ui.muted; font.pixelSize: 13
+                    }
+                }
+                ComboBox {
+                    id: presetLoader
+                    Layout.preferredWidth: 190; implicitHeight: 34
+                    model: ["Load preset…"].concat(deck.themeNames)
+                    currentIndex: 0
+                    onActivated: function(index) {
+                        if (index > 0) {
+                            const presetName = deck.themeNames[index - 1]
+                            themeDialog.colors = Object.assign({}, deck.themeColors(presetName))
+                            if (!themeDialog.creatingNew) themeNameInput.text = presetName
+                            currentIndex = 0
+                        }
+                    }
+                    contentItem: Text {
+                        leftPadding: 10; rightPadding: 10
+                        text: presetLoader.displayText; color: win.ui.foreground; font.pixelSize: 13
+                        verticalAlignment: Text.AlignVCenter; elide: Text.ElideRight
+                    }
+                    background: Rectangle {
+                        color: presetLoader.hovered ? win.ui.hover : win.ui.button
+                        border.color: win.ui.border; radius: Math.min(4, win.rounding)
+                    }
+                }
+            }
+            RowLayout {
+                Layout.fillWidth: true; spacing: 12
+                Label { text: "Theme name"; color: win.ui.foreground; font.pixelSize: 14; font.bold: true; Layout.preferredWidth: 100 }
+                TextField {
+                    id: themeNameInput; objectName: "themeNameInput"
+                    Layout.fillWidth: true; implicitHeight: 38
+                    placeholderText: "e.g. my-lecture"
+                    font.pixelSize: 15; color: win.ui.foreground
+                    selectionColor: win.ui.selection; selectedTextColor: win.ui.selectionText
+                    leftPadding: 12; rightPadding: 12
+                    background: Rectangle {
+                        color: win.ui.background; radius: Math.min(4, win.rounding)
+                        border.color: themeNameInput.activeFocus ? win.ui.accent : win.ui.border
+                    }
+                    onTextEdited: themeDialog.error = ""
+                    onAccepted: themeDialog.save()
+                }
+            }
+            GridLayout {
+                Layout.fillWidth: true
+                columns: 3; columnSpacing: 14; rowSpacing: 12
+                Repeater {
+                    model: themeDialog.fields
+                    Rectangle {
+                        required property var modelData
+                        Layout.fillWidth: true; implicitHeight: 64
+                        color: win.ui.background; border.color: win.ui.border; radius: Math.min(4, win.rounding)
+                        RowLayout {
+                            anchors.fill: parent; anchors.margins: 10; spacing: 10
+                            Rectangle {
+                                width: 34; height: 34; radius: 6
+                                color: themeDialog.colors[modelData.key] || "#000000"
+                                border.color: win.ui.border; border.width: 1
+                                MouseArea {
+                                    anchors.fill: parent; cursorShape: Qt.PointingHandCursor
+                                    onClicked: {
+                                        const picked = deck.pickColor(themeDialog.colors[modelData.key] || "#0067a5")
+                                        if (picked) themeDialog.setColor(modelData.key, picked)
+                                    }
+                                }
+                            }
+                            ColumnLayout {
+                                Layout.fillWidth: true; spacing: 2
+                                Label { text: modelData.label; color: win.ui.foreground; font.pixelSize: 12; font.bold: true }
+                                TextField {
+                                    Layout.fillWidth: true; implicitHeight: 24
+                                    text: themeDialog.colors[modelData.key] || ""
+                                    font.family: "Menlo"; font.pixelSize: 12; color: win.ui.foreground
+                                    leftPadding: 6; rightPadding: 6; topPadding: 2; bottomPadding: 2
+                                    selectByMouse: true
+                                    background: Rectangle {
+                                        color: win.ui.panel; radius: 3
+                                        border.color: parent.activeFocus ? win.ui.accent : win.ui.border
+                                    }
+                                    onTextEdited: themeDialog.setColor(modelData.key, text)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            Rectangle {
+                Layout.fillWidth: true; implicitHeight: 112
+                color: themeDialog.colors.background || "#ffffff"
+                border.color: win.ui.border; radius: 6
+                RowLayout {
+                    anchors.fill: parent; anchors.margins: 16; spacing: 18
+                    ColumnLayout {
+                        Layout.fillWidth: true; spacing: 4
+                        Text {
+                            text: "Live Slide Preview"
+                            color: themeDialog.colors.accent || "#0067a5"
+                            font.pixelSize: 20; font.bold: true
+                        }
+                        Text {
+                            text: "Subheading in cyan · Body text in foreground"
+                            color: themeDialog.colors.cyan || "#00798c"
+                            font.pixelSize: 13; font.bold: true
+                        }
+                        Text {
+                            text: "Regular slide paragraph text adapts immediately to your palette."
+                            color: themeDialog.colors.foreground || "#1e293b"
+                            font.pixelSize: 13; elide: Text.ElideRight; Layout.fillWidth: true
+                        }
+                    }
+                    Rectangle {
+                        Layout.preferredWidth: 250; Layout.fillHeight: true; radius: 8
+                        color: (themeDialog.colors.accent || "").toLowerCase() === "#0067a5" ? "#1c2430" : Qt.darker(themeDialog.colors.background || "#1a1b26", 1.15)
+                        border.color: win.ui.border
+                        ColumnLayout {
+                            anchors.fill: parent; anchors.margins: 10; spacing: 2
+                            Text {
+                                font.family: "Menlo"; font.pixelSize: 11
+                                textFormat: Text.RichText
+                                text: "<span style='color:" + (themeDialog.colors.magenta || "#bb9af7") + "'>def</span> " +
+                                      "<span style='color:" + (themeDialog.colors.accent || "#7aa2f7") + "'>dock</span>(" +
+                                      "<span style='color:" + (themeDialog.colors.yellow || "#e0af68") + "'>Mol</span>):"
+                            }
+                            Text {
+                                font.family: "Menlo"; font.pixelSize: 11
+                                textFormat: Text.RichText
+                                text: "  <span style='color:" + (themeDialog.colors.dark_foreground || "#787c99") + "'># comment</span>"
+                            }
+                            Text {
+                                font.family: "Menlo"; font.pixelSize: 11
+                                textFormat: Text.RichText
+                                text: "  <span style='color:" + (themeDialog.colors.green || "#9ece6a") + "'>\"pose.sdf\"</span>, " +
+                                      "<span style='color:" + (themeDialog.colors.red || "#f7768e") + "'>50</span>"
+                            }
+                        }
+                    }
+                }
+            }
+            Label {
+                Layout.fillWidth: true; visible: text.length > 0
+                text: themeDialog.error; color: win.ui.error; font.pixelSize: 13; wrapMode: Text.Wrap
+            }
+            RowLayout {
+                Layout.fillWidth: true; spacing: 10
+                Label {
+                    text: "Tip: Click any color square to open the macOS color wheel"
+                    color: win.ui.muted; font.pixelSize: 12
+                }
+                Item { Layout.fillWidth: true }
+                Button {
+                    id: cancelThemeBtn; text: "Cancel"; implicitHeight: 38; implicitWidth: 90
+                    contentItem: Text { text: parent.text; color: win.ui.foreground; font.pixelSize: 14; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
+                    background: Rectangle { color: cancelThemeBtn.hovered ? win.ui.hover : win.ui.button; radius: Math.min(4, win.rounding); border.color: win.ui.border }
+                    onClicked: themeDialog.close()
+                }
+                Button {
+                    id: saveThemeBtn; text: "Save & Apply"; implicitHeight: 38; implicitWidth: 130
+                    contentItem: Text { text: parent.text; color: win.ui.accentText; font.pixelSize: 14; font.bold: true; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
+                    background: Rectangle { color: saveThemeBtn.hovered ? win.ui.accentHover : win.ui.accent; radius: Math.min(4, win.rounding) }
+                    onClicked: themeDialog.save()
+                }
+            }
+        }
+    }
     Shortcut { sequences: ["Tab", "Shift+Tab"]; enabled: !win.popupOpen && !deck.compressingImage && !win.presenting && (stage.activeFocus || thumbnails.activeFocus); onActivated: win.switchEditingFocus() }
     Shortcut { enabled: !win.popupOpen && !deck.compressingImage; sequences: [StandardKey.Open]; onActivated: deck.openDialog() }
     Shortcut { enabled: !win.popupOpen && !deck.compressingImage; sequences: [StandardKey.Save]; onActivated: deck.save() }
@@ -1010,29 +1235,55 @@ ApplicationWindow {
             }
             ComboBox {
                 id: themes; objectName: "themePicker"
+                readonly property var themeActions: ["+ Create theme…", "Edit current theme…"]
                 Layout.preferredWidth: 36; Layout.preferredHeight: 36
                 padding: 0; indicator: null
                 contentItem: Item {
                     AppIcon { anchors.centerIn: parent; width: 18; height: 18; name: "theme"; color: themes.hovered || themes.popup.visible ? win.ui.foreground : win.ui.muted }
                 }
-                Accessible.name: qsTr("Theme: %1").arg(currentText)
-                ToolTip.visible: hovered; ToolTip.text: qsTr("Theme: %1").arg(currentText)
+                Accessible.name: qsTr("Theme: %1").arg(deck.themeName)
+                ToolTip.visible: hovered; ToolTip.text: qsTr("Theme: %1").arg(deck.themeName)
                 delegate: ItemDelegate {
                     required property string modelData
                     required property int index
+                    readonly property bool isAction: index >= deck.themeNames.length
                     width: themes.popup.availableWidth
                     text: modelData
                     highlighted: themes.highlightedIndex === index
-                    contentItem: Text { text: modelData; color: win.ui.foreground; font: themes.font; verticalAlignment: Text.AlignVCenter }
-                    background: Rectangle { color: parent.highlighted ? win.ui.hover : win.ui.panel }
+                    contentItem: Text {
+                        text: modelData
+                        color: parent.isAction ? win.ui.accent : win.ui.foreground
+                        font.family: themes.font.family
+                        font.pixelSize: themes.font.pixelSize
+                        font.bold: parent.isAction
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                    background: Rectangle {
+                        color: parent.highlighted ? win.ui.hover : win.ui.panel
+                        Rectangle {
+                            visible: parent.parent.index === deck.themeNames.length
+                            anchors.top: parent.top; width: parent.width; height: 1
+                            color: win.ui.border
+                        }
+                    }
                 }
                 background: Rectangle { color: themes.hovered || themes.popup.visible ? win.ui.hover : "transparent"; radius: win.softRadius }
-                model: deck.themeNames
+                model: deck.themeNames.concat(themeActions)
                 currentIndex: Math.max(0, deck.themeNames.indexOf(deck.themeName))
-                onActivated: deck.chooseTheme(currentText)
+                onActivated: function(index) {
+                    if (index === deck.themeNames.length) {
+                        currentIndex = Qt.binding(function() { return Math.max(0, deck.themeNames.indexOf(deck.themeName)) })
+                        Qt.callLater(function() { themeDialog.openEditor(deck.themeName, true) })
+                    } else if (index === deck.themeNames.length + 1) {
+                        currentIndex = Qt.binding(function() { return Math.max(0, deck.themeNames.indexOf(deck.themeName)) })
+                        Qt.callLater(function() { themeDialog.openEditor(deck.themeName, false) })
+                    } else {
+                        deck.chooseTheme(deck.themeNames[index])
+                    }
+                }
                 popup: Popup {
                     y: themes.height + 4; width: 240; padding: 6
-                    height: Math.min(contentItem.implicitHeight + 12, 420, win.height - 100)
+                    height: Math.min(contentItem.implicitHeight + 12, 460, win.height - 100)
                     background: Rectangle { color: win.ui.panel; border.color: win.ui.border; radius: win.rounding }
                     contentItem: ListView {
                         clip: true; implicitHeight: contentHeight

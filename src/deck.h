@@ -130,6 +130,9 @@ class Deck : public QAbstractListModel {
     Q_INVOKABLE void undo();
     Q_INVOKABLE void redo();
     Q_INVOKABLE void chooseTheme(const QString &name);
+    Q_INVOKABLE QVariantMap themeColors(const QString &name) const;
+    Q_INVOKABLE QString pickColor(const QString &initialHex) const;
+    Q_INVOKABLE QString saveTheme(const QString &name, const QVariantMap &colors);
     Q_INVOKABLE void openDialog();
     Q_INVOKABLE void save();
     Q_INVOKABLE void saveAs();
