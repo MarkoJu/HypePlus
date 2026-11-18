@@ -6,27 +6,27 @@ Simple presentations, written in Markdown. Big headlines, images, video, and cod
 
 ## What's New in Hype+ (vs. Upstream Hype)
 
-1. **Native macOS Port & Build System**
-   - **Memory Budgeting ([src/budget.h](src/budget.h)):** Adds macOS Mach VM (`host_statistics64`) and `sysctl` (`hw.memsize`) available-memory detection where Linux `/proc/meminfo` and cgroups v2 do not exist.
-   - **Allocator Relief ([src/deck.cpp](src/deck.cpp)):** Replaces glibc-only `<malloc.h>` / `malloc_trim(0)` with macOS `<malloc/malloc.h>` / `malloc_zone_pressure_relief(nullptr, 0)` after parallel slide rendering.
-   - **Native Cocoa File Dialogs ([src/filedialog.cpp](src/filedialog.cpp), [src/main.cpp](src/main.cpp), [CMakeLists.txt](CMakeLists.txt)):** Falls back to native macOS `QFileDialog` (`Open`, `Save`, `Save As`, `Export`, `Media`) when the Linux Freedesktop D-Bus portal (`org.freedesktop.portal.Desktop`) is absent.
-   - **macOS Monospace Fallback ([src/renderer.cpp](src/renderer.cpp)):** Automatically falls back to macOS `Menlo` when `JetBrains Mono` is not installed.
-   - **Direct GUI Launch ([src/main.cpp](src/main.cpp)):** Running bare `hype` / `hype+` on macOS opens the editor window directly instead of exiting with CLI help (use `hype -h` or `hype help` for CLI help).
+### 1. macOS Enhancements & Platform Adaptations
+Upstream Hype was written exclusively for the Omarchy Linux desktop (relying on Linux `/proc/meminfo`, cgroups v2, glibc `malloc_trim`, Freedesktop D-Bus portals, `nproc`, and XDG theme paths). **Hype+** adapts the entire stack to run natively on macOS (Apple Silicon & Intel):
 
-2. **macOS Deployment & Packaging Scripts**
-   - **[bin/bootstrap-macos](bin/bootstrap-macos):** Installs all required Homebrew packages (`cmake`, `pkgconf`, `qtbase`, `qtdeclarative`, `qtmultimedia`, `qtsvg`, `qttools`, `qtwebengine`, `qtimageformats`, `webp`, `ffmpeg`, `source-highlight`) and compiles `build/hype+`.
-   - **[bin/package-macos](bin/package-macos):** Builds and packages a self-contained macOS `.app` bundle at `build/Hype+.app` with `Info.plist` and bundled themes.
-   - **[bin/build](bin/build):** Adds `sysctl -n hw.ncpu` fallback on macOS when `nproc` is not present.
+- **Cocoa `QApplication` & Native macOS Finder Dialogs ([src/filedialog.cpp](src/filedialog.cpp), [src/main.cpp](src/main.cpp), [CMakeLists.txt](CMakeLists.txt)):** Replaces the Linux-only `org.freedesktop.portal.FileChooser` D-Bus call with native macOS Finder file sheets (`QFileDialog::getOpenFileName` / `getSaveFileName`) for opening decks, saving, importing images/videos, and exporting PDF/PowerPoint.
+- **Mach VM Kernel Memory Budgeting ([src/budget.h](src/budget.h)):** Replaces Linux `/proc/meminfo` and `/sys/fs/cgroup` parsing with macOS Mach kernel VM statistics (`host_statistics64(mach_host_self(), HOST_VM_INFO64, ...)` and `sysctlbyname("hw.memsize")`) so parallel 4K slide rendering and `x264` video encoding scale safely to free macOS RAM.
+- **macOS Heap Pressure Relief ([src/deck.cpp](src/deck.cpp)):** Replaces glibc's `<malloc.h>` / `malloc_trim(0)` with macOS `<malloc/malloc.h>` / `malloc_zone_pressure_relief(nullptr, 0)` to return 4K slide buffers to the OS before video encoding begins.
+- **CoreText & `Menlo` Monospace Adaptation ([src/renderer.cpp](src/renderer.cpp)):** Automatically detects when `JetBrains Mono` is absent on macOS and falls back to macOS's native `Menlo` monospace font without triggering Qt font-alias scan delays.
+- **Retina-Ready `Hype+.app` Application Bundle ([bin/package-macos](bin/package-macos)):** Packages the binary and themes into a native macOS `.app` bundle (`build/Hype+.app`) with `NSHighResolutionCapable` enabled in `Info.plist` for crisp 2x/3x Retina rendering.
+- **One-Command Homebrew Toolchain Bootstrap ([bin/bootstrap-macos](bin/bootstrap-macos), [bin/build](bin/build)):** Automates installation of Qt 6 (`qtbase`, `qtdeclarative`, `qtmultimedia`, `qtsvg`, `qttools`, `qtwebengine`, `qtimageformats`), `webp`, `ffmpeg`, and `source-highlight` on macOS, and uses `sysctl -n hw.ncpu` for parallel CMake builds.
+- **Direct GUI Launch on macOS ([src/main.cpp](src/main.cpp)):** Running bare `hype` or `hype+` from the macOS terminal launches the GUI editor directly (while `hype -h` or `hype help` prints CLI help).
+- **macOS Test Suite Compatibility ([tests/test_cli.py](tests/test_cli.py), [tests/test_shutdown.py](tests/test_shutdown.py)):** Resolves macOS `/var` → `/private/var` temporary directory symlinks and `/bin/sleep` path differences so the full test suite passes on macOS.
 
-3. **Bundled Color Themes (`themes/`)**
-   - Ships 13 ready-to-use themes out of the box (`catppuccin`, `catppuccin-latte`, `everforest`, `gruvbox`, `kanagawa`, `lecture`, `matte-black`, `nord`, `osaka-jade`, `paper`, `ristretto`, `rose-pine`, `tokyo-night`) so the toolbar Theme picker works without an Omarchy Linux installation.
+### 2. Bundled Color Themes (`themes/`)
+- Ships **13 ready-to-use themes** out of the box (`catppuccin`, `catppuccin-latte`, `everforest`, `gruvbox`, `kanagawa`, `lecture`, `matte-black`, `nord`, `osaka-jade`, `paper`, `ristretto`, `rose-pine`, `tokyo-night`) discovered relative to the app bundle/binary ([src/deck.cpp](src/deck.cpp)), so the toolbar Theme picker works immediately on macOS without `~/.local/share/omarchy/themes/`.
 
-4. **Academic `lecture` Theme & Renderer Enhancements ([src/renderer.cpp](src/renderer.cpp), [src/syntax.cpp](src/syntax.cpp))**
-   - **White Slide Canvas & Academic Palette (`themes/lecture/colors.toml`):** Pure `#ffffff` background, `#0067a5` blue headings, `#00798c` teal subheadings, and `#1e293b` dark slate body text.
-   - **Proportional Left-Aligned Headings:** Scales headings to balanced academic proportions (~50–56px, left-aligned) without Qt's `FontSizeAdjustment` inflation.
-   - **Dark Rounded Code Windows (`#1c2430`):** Draws a dark `#1c2430` rounded window behind each fenced Markdown code block (` ```python `, ` ```bash `, ` ```json `) with high-contrast dark-theme syntax highlighting inside, while keeping slide headings and prose outside on the white canvas.
-   - **Sharp Split-Layout for Diagrams (`![fit](...)`):** Keeps the `# Heading` in the top band and renders fitted diagrams sharp and unblurred below it (without darkening or blurring the diagram).
-   - **Preserved Blank-Line Spacing:** Typing 2 or more consecutive empty lines (`Enter`) inserts real vertical spacing on slides (e.g., to push dates/authors to the bottom of a title slide).
+### 3. Academic `lecture` Theme & Renderer Enhancements ([src/renderer.cpp](src/renderer.cpp), [src/syntax.cpp](src/syntax.cpp))
+- **White Slide Canvas & Academic Palette (`themes/lecture/colors.toml`):** Pure `#ffffff` background, `#0067a5` blue headings, `#00798c` teal subheadings, and `#1e293b` dark slate body text.
+- **Proportional Left-Aligned Headings:** Scales `# Heading` to balanced academic proportions (~50–56px, left-aligned) without Qt's `FontSizeAdjustment` inflation.
+- **Dark Rounded Code Windows (`#1c2430`):** Draws a dark `#1c2430` rounded window behind each fenced Markdown code block (` ```python `, ` ```bash `, ` ```json `) with high-contrast dark-theme syntax highlighting inside, while keeping slide headings and prose outside on the white canvas.
+- **Sharp Split-Layout for Diagrams (`![fit](...)`):** Keeps the `# Heading` in the top band and renders fitted diagrams sharp and unblurred below it (without darkening or blurring the diagram).
+- **Section Accent Bars & Blank-Line Spacing:** Supports `orange-bar.png` section markers above `### PART` headings and preserves 2+ consecutive empty lines (`Enter`) as real vertical slide spacing.
 
 ## Install on macOS
 
