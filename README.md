@@ -2,7 +2,31 @@
 
 Simple presentations, written in Markdown. Big headlines, images, video, and code—with a visual editor to put everything in order.
 
-**Hype+** is the macOS port and academic-lecture edition of [omacom/hype](https://github.com/omacom/hype) (MIT License), adding native macOS build/bundle scripts (`./bin/bootstrap-macos`, `./bin/package-macos`), native Cocoa file dialogs, Mach VM memory budgeting, bundled color themes (including the white `lecture` theme with dark rounded code windows and clean diagram placement), and vertical blank-line spacing.
+**Hype+** (`MarkoJu/HypePlus`) is the macOS port and academic-lecture edition of [omacom/hype](https://github.com/omacom/hype) (MIT License).
+
+## What's New in Hype+ (vs. Upstream Hype)
+
+1. **Native macOS Port & Build System**
+   - **Memory Budgeting ([src/budget.h](src/budget.h)):** Adds macOS Mach VM (`host_statistics64`) and `sysctl` (`hw.memsize`) available-memory detection where Linux `/proc/meminfo` and cgroups v2 do not exist.
+   - **Allocator Relief ([src/deck.cpp](src/deck.cpp)):** Replaces glibc-only `<malloc.h>` / `malloc_trim(0)` with macOS `<malloc/malloc.h>` / `malloc_zone_pressure_relief(nullptr, 0)` after parallel slide rendering.
+   - **Native Cocoa File Dialogs ([src/filedialog.cpp](src/filedialog.cpp), [src/main.cpp](src/main.cpp), [CMakeLists.txt](CMakeLists.txt)):** Falls back to native macOS `QFileDialog` (`Open`, `Save`, `Save As`, `Export`, `Media`) when the Linux Freedesktop D-Bus portal (`org.freedesktop.portal.Desktop`) is absent.
+   - **macOS Monospace Fallback ([src/renderer.cpp](src/renderer.cpp)):** Automatically falls back to macOS `Menlo` when `JetBrains Mono` is not installed.
+   - **Direct GUI Launch ([src/main.cpp](src/main.cpp)):** Running bare `hype` / `hype+` on macOS opens the editor window directly instead of exiting with CLI help (use `hype -h` or `hype help` for CLI help).
+
+2. **macOS Deployment & Packaging Scripts**
+   - **[bin/bootstrap-macos](bin/bootstrap-macos):** Installs all required Homebrew packages (`cmake`, `pkgconf`, `qtbase`, `qtdeclarative`, `qtmultimedia`, `qtsvg`, `qttools`, `qtwebengine`, `qtimageformats`, `webp`, `ffmpeg`, `source-highlight`) and compiles `build/hype+`.
+   - **[bin/package-macos](bin/package-macos):** Builds and packages a self-contained macOS `.app` bundle at `build/Hype+.app` with `Info.plist` and bundled themes.
+   - **[bin/build](bin/build):** Adds `sysctl -n hw.ncpu` fallback on macOS when `nproc` is not present.
+
+3. **Bundled Color Themes (`themes/`)**
+   - Ships 13 ready-to-use themes out of the box (`catppuccin`, `catppuccin-latte`, `everforest`, `gruvbox`, `kanagawa`, `lecture`, `matte-black`, `nord`, `osaka-jade`, `paper`, `ristretto`, `rose-pine`, `tokyo-night`) so the toolbar Theme picker works without an Omarchy Linux installation.
+
+4. **Academic `lecture` Theme & Renderer Enhancements ([src/renderer.cpp](src/renderer.cpp), [src/syntax.cpp](src/syntax.cpp))**
+   - **White Slide Canvas & Academic Palette (`themes/lecture/colors.toml`):** Pure `#ffffff` background, `#0067a5` blue headings, `#00798c` teal subheadings, and `#1e293b` dark slate body text.
+   - **Proportional Left-Aligned Headings:** Scales headings to balanced academic proportions (~50–56px, left-aligned) without Qt's `FontSizeAdjustment` inflation.
+   - **Dark Rounded Code Windows (`#1c2430`):** Draws a dark `#1c2430` rounded window behind each fenced Markdown code block (` ```python `, ` ```bash `, ` ```json `) with high-contrast dark-theme syntax highlighting inside, while keeping slide headings and prose outside on the white canvas.
+   - **Sharp Split-Layout for Diagrams (`![fit](...)`):** Keeps the `# Heading` in the top band and renders fitted diagrams sharp and unblurred below it (without darkening or blurring the diagram).
+   - **Preserved Blank-Line Spacing:** Typing 2 or more consecutive empty lines (`Enter`) inserts real vertical spacing on slides (e.g., to push dates/authors to the bottom of a title slide).
 
 ## Install on macOS
 
