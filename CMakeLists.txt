@@ -36,7 +36,7 @@ add_library(hype_core STATIC ${hype_sources})
 target_include_directories(hype_core PUBLIC src)
 target_link_libraries(hype_core PUBLIC
   Qt6::Core Qt6::Gui Qt6::Qml Qt6::Quick Qt6::QuickControls2 Qt6::Multimedia Qt6::Concurrent
-  Qt6::DBus Qt6::Svg PkgConfig::WEBP ZLIB::ZLIB)
+  Qt6::DBus Qt6::Svg Qt6::Widgets PkgConfig::WEBP ZLIB::ZLIB)
 target_compile_options(hype_core PUBLIC -Wall -Wextra)
 set_target_properties(hype_core PROPERTIES INTERPROCEDURAL_OPTIMIZATION ON)
 

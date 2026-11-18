@@ -2,5 +2,6 @@
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
+jobs="$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)"
 cmake -S "$root" -B "$root/build" -DCMAKE_BUILD_TYPE=Release >/dev/null
-cmake --build "$root/build" -j"$(nproc)"
+cmake --build "$root/build" -j"$jobs"

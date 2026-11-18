@@ -55,16 +55,25 @@ static QString highlightedHtml(const QString &source, QString language) {
 
 void highlightCode(QTextDocument &document, const QVariantMap &palette) {
     QString css;
+    const bool darkCodeWindow = palette.value("accent").toString().toLower() == "#0067a5";
     const QMap<QString, QString> colors{
         {"keyword", "magenta"},  {"type", "yellow"},     {"classname", "yellow"},
         {"string", "green"},     {"regexp", "green"},    {"specialchar", "cyan"},
         {"number", "red"},       {"function", "accent"}, {"preproc", "cyan"},
         {"symbol", "cyan"},      {"variable", "red"},    {"comment", "dark_foreground"},
         {"normal", "foreground"}};
+    const QMap<QString, QString> darkWindowColors{
+        {"keyword", "#56b6c2"},  {"type", "#e5c07b"},     {"classname", "#e5c07b"},
+        {"string", "#98c379"},   {"regexp", "#98c379"},   {"specialchar", "#56b6c2"},
+        {"number", "#e5c07b"},   {"function", "#61afef"}, {"preproc", "#c678dd"},
+        {"symbol", "#56b6c2"},   {"variable", "#e5c07b"}, {"comment", "#8b949e"},
+        {"normal", "#e6edf3"}};
     for (auto it = colors.cbegin(); it != colors.cend(); ++it)
         css +=
             QString("span.%1 { color: %2; }")
-                .arg(it.key(), palette.value(it.value(), palette.value("foreground")).toString());
+                .arg(it.key(), darkCodeWindow
+                                   ? darkWindowColors.value(it.key(), "#e6edf3")
+                                   : palette.value(it.value(), palette.value("foreground")).toString());
     for (QTextBlock block = document.begin(); block.isValid();) {
         const QString language = block.blockFormat().stringProperty(QTextFormat::BlockCodeLanguage);
         if (language.isEmpty()) {

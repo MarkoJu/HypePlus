@@ -1,10 +1,18 @@
-# Hype
+# Hype+
 
 Simple presentations, written in Markdown. Big headlines, images, video, and code—with a visual editor to put everything in order.
 
-Hype is a native app for Omarchy. Your presentation is a Markdown file with its media alongside it. Choose an installed Omarchy theme, pick a font, and export to PDF or PowerPoint.
+**Hype+** is the macOS port and academic-lecture edition of [omacom/hype](https://github.com/omacom/hype) (MIT License), adding native macOS build/bundle scripts (`./bin/bootstrap-macos`, `./bin/package-macos`), native Cocoa file dialogs, Mach VM memory budgeting, bundled color themes (including the white `lecture` theme with dark rounded code windows and clean diagram placement), and vertical blank-line spacing.
 
-## Install
+## Install on macOS
+
+```sh
+./bin/bootstrap-macos
+./bin/package-macos
+./build/hype+
+```
+
+## Install on Omarchy (Linux)
 
 Install Hype from the [Omarchy Package Repository (OPR)](https://github.com/omacom/omarchy-pkgs):
 

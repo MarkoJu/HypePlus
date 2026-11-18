@@ -3,6 +3,9 @@
 #include "deck.h"
 #include "renderer.h"
 #include "translator.h"
+#ifdef __APPLE__
+#include <QApplication>
+#endif
 #include <QGuiApplication>
 #include <QCommandLineParser>
 #include <QDBusConnection>
@@ -46,8 +49,13 @@ int main(int argc, char **argv) {
     qputenv("QT_QPA_PLATFORMTHEME", "generic");
     // Commands, exports and help draw no window, so they must not need a display,
     // even where the desktop exports QT_QPA_PLATFORM=wayland.
-    // Bare hype prints help, as a command line tool should; launchers say hype open.
+    // Bare hype opens the editor on macOS (unless headless in tests); hype help prints CLI help.
+#ifdef __APPLE__
+    const bool command = (argc == 1 && qEnvironmentVariableIsSet("QT_QPA_PLATFORM")) ||
+                         (argc > 1 && isCliCommand(argv[1]));
+#else
     const bool command = argc == 1 || isCliCommand(argv[1]);
+#endif
     bool windowless = command;
     for (int i = 1; i < argc; ++i) {
         const QByteArray argument(argv[i]);
@@ -57,14 +65,19 @@ int main(int argc, char **argv) {
     }
     if (windowless)
         qputenv("QT_QPA_PLATFORM", "offscreen");
+#ifdef __APPLE__
+    QApplication app(argc, argv);
+#else
     QGuiApplication app(argc, argv);
+#endif
     app.setApplicationName("hype");
+    app.setApplicationDisplayName("Hype+");
     app.setApplicationVersion(HYPE_VERSION);
     app.setDesktopFileName(qEnvironmentVariable("HYPE_DESKTOP_FILE", "hype"));
     if (command)
         return runCli(app.arguments());
     QCommandLineParser args;
-    args.setApplicationDescription("Simple Markdown presentations with a visual slide editor.\n\n" + cliSummary());
+    args.setApplicationDescription("Hype+ — Simple Markdown presentations with a visual slide editor.\n\n" + cliSummary());
     args.addHelpOption();
     args.addVersionOption();
     args.addPositionalArgument("presentation", "Markdown presentation");

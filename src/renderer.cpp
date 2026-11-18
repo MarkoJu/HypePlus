@@ -12,6 +12,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QFontDatabase>
 #include <QImageReader>
 #include <QMutex>
 #include <QPainter>
@@ -614,15 +615,30 @@ static QString slideProperty(const QString &source, const QString &key) {
     QRegularExpression re("<!--\\s*hype:[\\s\\S]*?\\b" + key + "=\"([^\"]*)\"[\\s\\S]*?-->");
     return re.match(source).captured(1);
 }
+static const QString blankLineMarker = QStringLiteral("HYPEBLANKLINE");
 static QString preserveLineBreaks(QString markdown) {
     markdown.replace("\r\n", "\n").replace('\r', '\n');
     const QStringList visible = outsideCode(markdown, false).split('\n');
     QStringList lines = markdown.split('\n');
-    for (int i = 0; i + 1 < lines.size(); ++i) {
-        if (!visible[i].trimmed().isEmpty() && !lines[i].endsWith("  ") && !lines[i].endsWith('\\'))
-            lines[i] += "  ";
+    QStringList out;
+    int emptyRun = 0;
+    for (int i = 0; i < lines.size(); ++i) {
+        if (visible[i].trimmed().isEmpty() && lines[i].trimmed().isEmpty()) {
+            ++emptyRun;
+            out << QString();
+            if (emptyRun >= 2) {
+                out << blankLineMarker;
+                out << QString();
+            }
+        } else {
+            emptyRun = 0;
+            QString line = lines[i];
+            if (i + 1 < lines.size() && !line.endsWith("  ") && !line.endsWith('\\'))
+                line += "  ";
+            out << line;
+        }
     }
-    return lines.join('\n');
+    return out.join('\n');
 }
 static const QRegularExpression &tableDelimiter() {
     // A delimiter row, with or without outer pipes: | --- | :-: | or --- | ---:
@@ -674,20 +690,38 @@ static QString padTableCells(const QString &markdown) {
     }
     return lines.join('\n');
 }
+static bool isFencedCodeBlock(const QTextBlock &block) {
+    if (!block.isValid())
+        return false;
+    const auto bf = block.blockFormat();
+    return bf.hasProperty(QTextFormat::BlockCodeFence) ||
+           !bf.stringProperty(QTextFormat::BlockCodeLanguage).isEmpty() ||
+           bf.nonBreakableLines();
+}
 static void sizeSlideText(QTextDocument &doc, const QVariantMap &palette, qreal fontSize,
                           qreal width, bool centered, bool code) {
     // A null page size suspends layout while every format below changes; the
     // final setTextWidth lays the document out once instead of once per run.
     doc.setPageSize(QSizeF(0, 0));
-    QFont font(code ? QString("JetBrains Mono")
-                    : palette.value("font", "JetBrains Mono").toString());
+    const bool lectureStyle = palette.value("accent").toString().toLower() == "#0067a5";
+    QString monoFamily = QString("JetBrains Mono");
+    if (!QFontDatabase::hasFamily(monoFamily))
+        monoFamily = QFontDatabase::hasFamily("Menlo")
+                         ? QString("Menlo")
+                         : QFontDatabase::systemFont(QFontDatabase::FixedFont).family();
+    QString family = (code && !lectureStyle) ? monoFamily
+                                             : palette.value("font", "JetBrains Mono").toString();
+    if (!QFontDatabase::hasFamily(family))
+        family = monoFamily;
+    QFont font(family);
     font.setPixelSize(qRound(fontSize));
     font.setHintingPreference(QFont::PreferNoHinting);
     doc.setDefaultFont(font);
     doc.setDocumentMargin(0);
     QTextOption option;
     option.setUseDesignMetrics(true);
-    option.setWrapMode(code ? QTextOption::NoWrap : QTextOption::WrapAtWordBoundaryOrAnywhere);
+    option.setWrapMode((code && !lectureStyle) ? QTextOption::NoWrap
+                                               : QTextOption::WrapAtWordBoundaryOrAnywhere);
     doc.setDefaultTextOption(option);
     doc.setDefaultStyleSheet(
         QString("body { color: %1; } a { color: %2; } pre { white-space: pre; }")
@@ -696,13 +730,23 @@ static void sizeSlideText(QTextDocument &doc, const QVariantMap &palette, qreal 
         QTextCursor cursor(block);
         QTextBlockFormat bf = block.blockFormat();
         int level = bf.headingLevel();
+        const bool codeBlock = isFencedCodeBlock(block);
         // Table cells keep the alignment their column's delimiter asked for.
         if (!cursor.currentTable())
-            bf.setAlignment(centered ? Qt::AlignHCenter : Qt::AlignLeft);
+            bf.setAlignment((centered && !codeBlock) ? Qt::AlignHCenter : Qt::AlignLeft);
         bf.setTopMargin(level ? fontSize * 0.15 : 0);
-        bf.setBottomMargin(fontSize * 0.22);
+        bf.setBottomMargin(level ? (lectureStyle ? fontSize * 0.42 : fontSize * 0.22) : fontSize * 0.22);
         bf.setLineHeight(115, QTextBlockFormat::ProportionalHeight);
-        if (code) {
+        if (codeBlock && lectureStyle) {
+            const bool firstCode = !isFencedCodeBlock(block.previous());
+            const bool lastCode = !isFencedCodeBlock(block.next());
+            bf.setNonBreakableLines(true);
+            bf.setLeftMargin(34);
+            bf.setRightMargin(34);
+            bf.setTopMargin(firstCode ? fontSize * 0.75 : 0);
+            bf.setBottomMargin(lastCode ? fontSize * 0.75 : 0);
+            bf.setLineHeight(124, QTextBlockFormat::ProportionalHeight);
+        } else if (code && !lectureStyle) {
             bf.setBottomMargin(0);
             bf.setTopMargin(0);
             bf.setLineHeight(120, QTextBlockFormat::ProportionalHeight);
@@ -716,24 +760,36 @@ static void sizeSlideText(QTextDocument &doc, const QVariantMap &palette, qreal 
             text.setPosition(fragment.position());
             text.setPosition(fragment.position() + fragment.length(), QTextCursor::KeepAnchor);
             QTextCharFormat cf;
-            QFont f = font;
-            f.setPixelSize(qRound(fontSize * (level == 1 ? 1.8 : level ? 1.25 : 1.0)));
+            const bool inlineCode = fragment.charFormat().fontFixedPitch() || codeBlock;
+            QFont f(inlineCode && lectureStyle ? monoFamily : font.family());
+            const qreal scale = lectureStyle
+                                    ? (level == 1 ? 1.48 : level ? 1.15 : codeBlock ? 0.88 : 1.0)
+                                    : (level == 1 ? 1.8 : level ? 1.25 : 1.0);
+            f.setPixelSize(qRound(fontSize * scale));
             cf.setProperty(QTextFormat::FontPixelSize, f.pixelSize());
-            cf.setFontFamilies({font.family()});
+            cf.setFontFamilies({f.family()});
             // Qt drops both heading weight and its relative size at inline
             // formatting boundaries. The relative size overrides FontPixelSize
             // during layout, so restore both to preserve the existing heading
             // appearance, while keeping underline/italic/etc. local to each run.
             if (level) {
                 cf.setFontWeight(QFont::Bold);
-                cf.setProperty(QTextFormat::FontSizeAdjustment, 4 - level);
+                if (!lectureStyle)
+                    cf.setProperty(QTextFormat::FontSizeAdjustment, 4 - level);
             }
-            QColor color(palette["foreground"].toString());
-            if (fragment.charFormat().fontWeight() >= QFont::Bold && !level)
+            QColor color(codeBlock && lectureStyle ? QString("#e6edf3")
+                                                   : palette["foreground"].toString());
+            if (lectureStyle && level == 1)
+                color = QColor(palette["accent"].toString());
+            else if (lectureStyle && level >= 2)
+                color = QColor(palette.value("cyan", palette["accent"]).toString());
+            else if (fragment.charFormat().fontWeight() >= QFont::Bold && !level && !codeBlock)
                 color = QColor(palette["accent"].toString());
             if (block.text().startsWith(QString::fromUtf8("—"))) {
                 cf.setProperty(QTextFormat::FontPixelSize, qRound(fontSize * 0.7));
             }
+            if (block.text().trimmed() == blankLineMarker)
+                color = Qt::transparent;
             cf.setForeground(color);
             text.mergeCharFormat(cf);
         }
@@ -839,7 +895,13 @@ void paintSlide(QPainter *p, const QRectF &target, const QString &source, const 
     if (!overlayOnly)
         p->fillRect(QRectF(0, 0, 1920, 1080), QColor(palette["background"].toString()));
     auto media = parseMedia(source, base);
-    QString text = media.text.trimmed();
+    QString text = media.text;
+    if (text.startsWith('\n'))
+        text.remove(0, 1);
+    while (text.endsWith('\n') || text.endsWith('\r'))
+        text.chop(1);
+    if (text.trimmed().isEmpty())
+        text.clear();
     auto problems = slideProblems(source, base);
     QRectF area(130, 90, 1660, 900);
     if (!media.svg.isEmpty() && media.file.isEmpty()) {
@@ -857,10 +919,13 @@ void paintSlide(QPainter *p, const QRectF &target, const QString &source, const 
         }
     }
     if (!media.file.isEmpty()) {
+        const bool lectureStyle = palette.value("accent").toString().toLower() == "#0067a5";
+        const bool lectureDiagram =
+            lectureStyle && !media.video && !media.span && !media.placed() && !text.isEmpty();
         QString path =
             media.video ? (media.poster.isEmpty() ? ensurePoster(media.path, base) : media.poster)
                         : media.path;
-        const QRectF rect = mediaRect(media);
+        const QRectF rect = lectureDiagram ? QRectF(80, 175, 1760, 855) : mediaRect(media);
         const QSize pixels = p->deviceTransform().mapRect(rect).size().toSize();
         // An SVG with nothing over it is drawn as vectors, sharp at any size and in PDF. Its
         // small raster only gives its shape and edge colors for the background.
@@ -875,8 +940,8 @@ void paintSlide(QPainter *p, const QRectF &target, const QString &source, const 
             if (!backdrop.isNull())
                 p->drawImage(QRectF(0, 0, 1920, 1080), blurredBackground(backdrop));
         }
-        if ((!media.video || !media.background.isEmpty()) && !media.span && !media.placed() &&
-            media.background != "theme" && (bg.isEmpty() || !media.background.isEmpty())) {
+        if (!lectureDiagram && (!media.video || !media.background.isEmpty()) && !media.span &&
+            !media.placed() && media.background != "theme" && (bg.isEmpty() || !media.background.isEmpty())) {
             QColor color(media.background);
             if ((media.background.isEmpty() || media.background == "auto") && !backdrop.isNull()) {
                 // Quantized edge votes ignore transparent pixels and tolerate compression noise.
@@ -920,8 +985,12 @@ void paintSlide(QPainter *p, const QRectF &target, const QString &source, const 
             }
         }
 
-        if (!overlayOnly && !backgroundOnly && !image.isNull()) {
-            const QRectF dest = mediaImageRect(media, image.size());
+        if (!overlayOnly && !backgroundOnly && !image.isNull() &&
+            !(lectureStyle && media.file == "orange-bar.png")) {
+            QSizeF scaled = image.size();
+            scaled.scale(rect.size(), media.span ? Qt::KeepAspectRatioByExpanding : Qt::KeepAspectRatio);
+            const QRectF dest = lectureDiagram ? alignedRect(scaled, rect, Qt::AlignCenter)
+                                               : mediaImageRect(media, image.size());
             p->save();
             p->setClipRect(rect);
             QSvgRenderer svg;
@@ -929,11 +998,16 @@ void paintSlide(QPainter *p, const QRectF &target, const QString &source, const 
                 svg.setAspectRatioMode(Qt::KeepAspectRatio);
                 svg.render(p, dest);
             } else
-                p->drawImage(dest, !media.video && !media.placed() && !text.isEmpty()
+                p->drawImage(dest, !lectureDiagram && !media.video && !media.placed() && !text.isEmpty()
                                        ? softenedImage(image, dest.size())
                                        : image);
             p->restore();
-        } else if (!overlayOnly && !backgroundOnly) {
+            if (lectureStyle && media.file == "logos.png") {
+                QImage bar(assetPath(base, "orange-bar.png", false));
+                if (!bar.isNull())
+                    p->drawImage(QRectF(130, 128, 112, 22), bar);
+            }
+        } else if (!overlayOnly && !backgroundOnly && !(lectureStyle && media.file == "orange-bar.png")) {
             p->setPen(QColor(palette["accent"].toString()));
             const QString message = tr("Missing media") + "\n" + media.file;
             QFont diagnostic("sans");
@@ -951,7 +1025,9 @@ void paintSlide(QPainter *p, const QRectF &target, const QString &source, const 
             p->restore();
         }
         // Text beside a placed image keeps the theme's colors and full area.
-        if (!media.placed() && (!media.video || media.span)) {
+        if (lectureDiagram) {
+            area = QRectF(130, 48, 1660, 120);
+        } else if (!media.placed() && (!media.video || media.span)) {
             if (!backgroundOnly)
                 p->fillRect(QRectF(0, 0, 1920, 1080), QColor(0, 0, 0, qRound(media.overlay * 255)));
             if (fg.isEmpty() && !text.isEmpty())
@@ -964,6 +1040,9 @@ void paintSlide(QPainter *p, const QRectF &target, const QString &source, const 
         return;
     }
     if (!text.isEmpty()) {
+        const bool lectureStyle = palette.value("accent").toString().toLower() == "#0067a5";
+        const bool lectureDiagram =
+            lectureStyle && !media.file.isEmpty() && !media.video && !media.span && !media.placed();
         bool code = text.contains(
             QRegularExpression("^ {0,3}(`{3,}|~{3,})", QRegularExpression::MultilineOption));
         bool quote = text.startsWith('>');
@@ -972,7 +1051,8 @@ void paintSlide(QPainter *p, const QRectF &target, const QString &source, const 
         bool table = text.contains(tableDelimiter());
         // A table alone on its slide sits in the middle; beside other text it lines up with it.
         const bool tableOnly = table && !text.split('\n').filter(QRegularExpression("^(?!.*\\|).*\\S")).size();
-        bool centered = tableOnly || !(code || quote || list || table);
+        bool centered = lectureStyle ? (media.placed() && media.file != "orange-bar.png")
+                                     : (tableOnly || !(code || quote || list || table));
         const QString alignment = slideProperty(source, "alignment");
         if (alignment == "left")
             centered = false;
@@ -980,14 +1060,16 @@ void paintSlide(QPainter *p, const QRectF &target, const QString &source, const 
             centered = true;
         bool stack = (text.contains('\n') || text.contains('\r')) && !text.startsWith('#') &&
                      !quote && !list && !code;
-        qreal low = 8, high = code ? 56 : quote ? 64 : list || table ? 72 : stack ? 128 : 76;
+        qreal low = 8, high = lectureStyle
+                                  ? (lectureDiagram ? 38 : code ? 31 : table ? 32 : list ? 34 : 42)
+                                  : (code ? 56 : quote ? 64 : list || table ? 72 : stack ? 128 : 76);
         if (media.video && !media.span)
-            high = 48;
+            high = lectureStyle ? 36 : 48;
         QTextDocument doc;
         // Layout happens in 1080p slide units, so every render size, the PDF and
         // a theme change all reuse one search. Colors never affect the fit.
-        const QString fit = QString("%1 %2 %3 %4 %5 ").arg(high).arg(area.width()).arg(area.height())
-                                .arg(centered).arg(code) + palette.value("font").toString() + '\n' + text;
+        const QString fit = QString("%1 %2 %3 %4 %5 %6 ").arg(high).arg(area.width()).arg(area.height())
+                                .arg(centered).arg(code).arg(lectureStyle) + palette.value("font").toString() + '\n' + text;
         if (const qreal fitted = fittedSize(fit); fitted > 0) {
             low = fitted;
             layoutSlideText(doc, text, palette, low, area.width(), centered, code);
@@ -1012,7 +1094,37 @@ void paintSlide(QPainter *p, const QRectF &target, const QString &source, const 
         if (low < 24 && warning)
             *warning = tr("Text fits below 24px on a 1080p slide");
         p->save();
-        p->translate(area.x(), area.y() + qMax(0.0, (area.height() - doc.size().height()) / 2));
+        const qreal yOffset = lectureDiagram
+                                  ? area.y()
+                                  : area.y() + qMax(0.0, (area.height() - doc.size().height()) / 2);
+        p->translate(area.x(), yOffset);
+        if (lectureStyle && media.file == "orange-bar.png") {
+            QImage bar(media.path);
+            if (!bar.isNull())
+                p->drawImage(QRectF(0, -42, 112, 22), bar);
+        }
+        if (lectureStyle && code) {
+            for (QTextBlock b = doc.begin(); b.isValid();) {
+                if (!isFencedCodeBlock(b)) {
+                    b = b.next();
+                    continue;
+                }
+                const QRectF firstRect = doc.documentLayout()->blockBoundingRect(b);
+                QRectF lastRect = firstRect;
+                b = b.next();
+                while (b.isValid() && isFencedCodeBlock(b)) {
+                    lastRect = doc.documentLayout()->blockBoundingRect(b);
+                    b = b.next();
+                }
+                const QRectF boxRect(0, firstRect.top() - 18, area.width(),
+                                     (lastRect.bottom() - firstRect.top()) + 36);
+                p->save();
+                p->setPen(Qt::NoPen);
+                p->setBrush(QColor("#1c2430"));
+                p->drawRoundedRect(boxRect, 16, 16);
+                p->restore();
+            }
+        }
         QAbstractTextDocumentLayout::PaintContext context;
         context.palette.setColor(QPalette::Text, QColor(palette["foreground"].toString()));
         doc.documentLayout()->draw(p, context);

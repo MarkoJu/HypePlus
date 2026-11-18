@@ -1,0 +1,15 @@
+#!/bin/bash
+# Install macOS build/runtime dependencies via Homebrew and compile Hype+.
+set -euo pipefail
+
+root="$(cd "$(dirname "$0")/.." && pwd)"
+
+if ! command -v brew >/dev/null 2>&1; then
+    echo "Error: Homebrew is required on macOS (https://brew.sh)." >&2
+    exit 1
+fi
+
+brew install cmake pkgconf qtbase qtdeclarative qtmultimedia qtsvg qttools qtwebengine qtimageformats webp ffmpeg source-highlight
+"$root/bin/build"
+ln -sf hype "$root/build/hype+"
+echo "Built Hype+ at $root/build/hype+"

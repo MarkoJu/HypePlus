@@ -13,6 +13,9 @@
 #include <QScopeGuard>
 #include <QUrl>
 #include <QUuid>
+#ifdef __APPLE__
+#include <QFileDialog>
+#endif
 
 namespace {
 const QString service = "org.freedesktop.portal.Desktop";
@@ -37,6 +40,14 @@ const QDBusArgument &operator>>(const QDBusArgument &arg, Filter &filter) {
 
 QString FileDialog::choose(bool save, const QString &location, const QString &label,
                            const QStringList &patterns, QString *error) {
+#ifdef __APPLE__
+    if (!qEnvironmentVariableIsSet("HYPE_PORTAL_TESTS")) {
+        if (error) *error = {};
+        const QString filterText = QString("%1 (%2)").arg(label, patterns.join(' '));
+        return save ? QFileDialog::getSaveFileName(nullptr, tr("Save File"), location, filterText)
+                    : QFileDialog::getOpenFileName(nullptr, tr("Open File"), location, filterText);
+    }
+#endif
     qDBusRegisterMetaType<FilterRule>();
     qDBusRegisterMetaType<FilterRules>();
     qDBusRegisterMetaType<Filter>();

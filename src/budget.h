@@ -2,6 +2,10 @@
 #include <QFile>
 #include <QThread>
 #include <QtGlobal>
+#ifdef __APPLE__
+#include <mach/mach.h>
+#include <sys/sysctl.h>
+#endif
 
 // Sizes parallel work to this machine: a big workstation uses its cores, while a small
 // laptop stays inside the memory it has free rather than swapping or being killed.
@@ -40,6 +44,22 @@ inline qint64 availableBytes() {
                 break;
         }
     }
+#ifdef __APPLE__
+    if (free < 0) {
+        vm_size_t pageSize = 0;
+        vm_statistics64_data_t vmStat{};
+        mach_msg_type_number_t count = HOST_VM_INFO64_COUNT;
+        if (host_page_size(mach_host_self(), &pageSize) == KERN_SUCCESS &&
+            host_statistics64(mach_host_self(), HOST_VM_INFO64, reinterpret_cast<host_info64_t>(&vmStat), &count) == KERN_SUCCESS) {
+            free = qint64(vmStat.free_count + vmStat.inactive_count) * qint64(pageSize);
+        } else {
+            int64_t memsize = 0;
+            size_t len = sizeof(memsize);
+            if (sysctlbyname("hw.memsize", &memsize, &len, nullptr, 0) == 0 && memsize > 0)
+                free = memsize / 2;
+        }
+    }
+#endif
     return free;
 }
 
