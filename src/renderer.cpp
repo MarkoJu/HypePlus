@@ -1002,10 +1002,21 @@ void paintSlide(QPainter *p, const QRectF &target, const QString &source, const 
                                        ? softenedImage(image, dest.size())
                                        : image);
             p->restore();
-            if (lectureStyle && media.file == "logos.png") {
+            if (lectureStyle && (media.file == "logos.png" || media.file == "ceftaroline-thank-you.png" ||
+                                 media.file == "intro-2.png")) {
                 QImage bar(assetPath(base, "orange-bar.png", false));
                 if (!bar.isNull())
                     p->drawImage(QRectF(130, 128, 112, 22), bar);
+                if (media.file == "ceftaroline-thank-you.png" || media.file == "intro-2.png") {
+                    QImage topLogos(assetPath(base, "logos.png", false));
+                    if (!topLogos.isNull()) {
+                        QSizeF logoScaled = topLogos.size();
+                        logoScaled.scale(QSizeF(384, 216), Qt::KeepAspectRatio);
+                        p->drawImage(QRectF((1920 - logoScaled.width()) / 2, 60,
+                                            logoScaled.width(), logoScaled.height()),
+                                     topLogos);
+                    }
+                }
             }
         } else if (!overlayOnly && !backgroundOnly && !(lectureStyle && media.file == "orange-bar.png")) {
             p->setPen(QColor(palette["accent"].toString()));
@@ -1027,6 +1038,8 @@ void paintSlide(QPainter *p, const QRectF &target, const QString &source, const 
         // Text beside a placed image keeps the theme's colors and full area.
         if (lectureDiagram) {
             area = QRectF(130, 48, 1660, 120);
+        } else if (lectureStyle && media.file == "ceftaroline-thank-you.png") {
+            area = QRectF(130, 190, 1660, 340);
         } else if (!media.placed() && (!media.video || media.span)) {
             if (!backgroundOnly)
                 p->fillRect(QRectF(0, 0, 1920, 1080), QColor(0, 0, 0, qRound(media.overlay * 255)));

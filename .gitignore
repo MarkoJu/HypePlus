@@ -4,8 +4,4 @@
 __pycache__/
 .DS_Store
 .hype-backups/
-/lectures/
-/images/
-/CLI_API_MCP_Chemoinformatics.*
-/*.png
-/tools/build_cli_api_mcp_hype.py
+/LECTURES/

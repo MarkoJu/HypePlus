@@ -698,7 +698,7 @@ ApplicationWindow {
         anchors.centerIn: parent
         modal: true; focus: true; padding: 24
         closePolicy: Popup.CloseOnEscape
-        width: Math.min(680, parent.width - 48)
+        width: Math.min(740, parent.width - 48)
         property bool creatingNew: false
         property string error: ""
         property var colors: ({
@@ -707,15 +707,15 @@ ApplicationWindow {
             "magenta": "#6b3fa0", "red": "#c62828", "dark_foreground": "#52606d"
         })
         readonly property var fields: [
-            { key: "background", label: "Background", hint: "Slide canvas" },
-            { key: "foreground", label: "Foreground", hint: "Body text & tables" },
-            { key: "accent", label: "Accent", hint: "Headings & bold" },
-            { key: "cyan", label: "Cyan", hint: "Subheadings & symbols" },
-            { key: "green", label: "Green", hint: "Code strings" },
-            { key: "yellow", label: "Yellow", hint: "Code types & classes" },
-            { key: "magenta", label: "Magenta", hint: "Code keywords" },
-            { key: "red", label: "Red", hint: "Numbers & variables" },
-            { key: "dark_foreground", label: "Muted", hint: "Comments & captions" }
+            { key: "background", label: "Slide Background", hint: "Canvas & slide fill" },
+            { key: "foreground", label: "Body Text", hint: "Paragraphs, lists & tables" },
+            { key: "accent", label: "Headings & Bold", hint: "Titles, bold & functions" },
+            { key: "cyan", label: "Subheadings & Symbols", hint: "H2–H6 & code operators" },
+            { key: "magenta", label: "Code Keywords", hint: "def, return, if, import" },
+            { key: "yellow", label: "Code Types & Classes", hint: "Types & class names" },
+            { key: "green", label: "Code Strings", hint: "Quoted strings & regexes" },
+            { key: "red", label: "Numbers & Variables", hint: "Numeric literals & vars" },
+            { key: "dark_foreground", label: "Code Comments", hint: "Comments & muted text" }
         ]
         function openEditor(name, isNew) {
             creatingNew = isNew
@@ -803,12 +803,12 @@ ApplicationWindow {
                     model: themeDialog.fields
                     Rectangle {
                         required property var modelData
-                        Layout.fillWidth: true; implicitHeight: 64
+                        Layout.fillWidth: true; implicitHeight: 80
                         color: win.ui.background; border.color: win.ui.border; radius: Math.min(4, win.rounding)
                         RowLayout {
                             anchors.fill: parent; anchors.margins: 10; spacing: 10
                             Rectangle {
-                                width: 34; height: 34; radius: 6
+                                width: 38; height: 38; radius: 6
                                 color: themeDialog.colors[modelData.key] || "#000000"
                                 border.color: win.ui.border; border.width: 1
                                 MouseArea {
@@ -821,7 +821,16 @@ ApplicationWindow {
                             }
                             ColumnLayout {
                                 Layout.fillWidth: true; spacing: 2
-                                Label { text: modelData.label; color: win.ui.foreground; font.pixelSize: 12; font.bold: true }
+                                Label {
+                                    text: modelData.label; color: win.ui.foreground
+                                    font.pixelSize: 12; font.bold: true
+                                    Layout.fillWidth: true; elide: Text.ElideRight
+                                }
+                                Label {
+                                    text: modelData.hint; color: win.ui.muted
+                                    font.pixelSize: 11
+                                    Layout.fillWidth: true; elide: Text.ElideRight
+                                }
                                 TextField {
                                     Layout.fillWidth: true; implicitHeight: 24
                                     text: themeDialog.colors[modelData.key] || ""
@@ -853,7 +862,7 @@ ApplicationWindow {
                             font.pixelSize: 20; font.bold: true
                         }
                         Text {
-                            text: "Subheading in cyan · Body text in foreground"
+                            text: "Subheadings & symbols · Body text & tables"
                             color: themeDialog.colors.cyan || "#00798c"
                             font.pixelSize: 13; font.bold: true
                         }
@@ -1583,9 +1592,86 @@ ApplicationWindow {
             }
         }
         Rectangle {
-            visible: !win.presenting && !win.overview; Layout.preferredWidth: 232; Layout.fillHeight: true; color: win.ui.panel
-            ColumnLayout {
-                anchors.fill: parent; anchors.margins: win.inset; spacing: 10
+            visible: !win.presenting && !win.overview; Layout.preferredWidth: 244; Layout.fillHeight: true; color: win.ui.panel
+            RowLayout {
+                anchors.fill: parent
+                anchors.topMargin: win.inset
+                anchors.bottomMargin: win.inset
+                anchors.leftMargin: 10
+                anchors.rightMargin: win.inset
+                spacing: 8
+                Item {
+                    id: thumbnailScrollBar; objectName: "thumbnailScrollBar"
+                    Layout.fillHeight: true
+                    Layout.preferredWidth: 14
+                    readonly property real maxScroll: Math.max(0, thumbnails.contentHeight - thumbnails.height)
+                    readonly property bool canScroll: maxScroll > 0
+                    readonly property real trackHeight: Math.max(1, height - 4)
+                    readonly property real thumbRatio: thumbnails.contentHeight > 0
+                        ? Math.max(0.06, Math.min(1.0, thumbnails.height / thumbnails.contentHeight)) : 1.0
+                    readonly property real thumbHeight: canScroll ? Math.max(24, Math.round(trackHeight * thumbRatio)) : trackHeight
+                    readonly property real availableTrack: Math.max(1, trackHeight - thumbHeight)
+                    readonly property real scrollFraction: canScroll
+                        ? Math.max(0, Math.min(1, (thumbnails.contentY - thumbnails.originY) / maxScroll)) : 0
+                    readonly property real thumbY: 2 + scrollFraction * availableTrack
+                    function scrollToThumbY(targetThumbY) {
+                        if (!canScroll) return
+                        thumbnails.cancelFlick()
+                        thumbnails.stopWheel()
+                        const ratio = Math.max(0, Math.min(1, (targetThumbY - 2) / availableTrack))
+                        thumbnails.contentY = thumbnails.originY + ratio * maxScroll
+                    }
+                    Rectangle {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        y: 2; width: 8; height: parent.trackHeight; radius: 4
+                        color: Qt.alpha(win.ui.border, 0.55)
+                    }
+                    Rectangle {
+                        id: thumbnailScrollThumb
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        y: thumbnailScrollBar.thumbY
+                        width: 8
+                        height: thumbnailScrollBar.thumbHeight
+                        radius: 4
+                        visible: thumbnailScrollBar.canScroll
+                        color: scrollBarArea.pressed ? win.ui.accent
+                             : scrollBarArea.containsMouse ? win.ui.accentHover
+                             : win.ui.muted
+                    }
+                    MouseArea {
+                        id: scrollBarArea
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        preventStealing: true
+                        cursorShape: thumbnailScrollBar.canScroll ? Qt.PointingHandCursor : Qt.ArrowCursor
+                        property real dragOffset: 0
+                        onPressed: function(mouse) {
+                            if (!thumbnailScrollBar.canScroll) return
+                            if (mouse.y >= thumbnailScrollBar.thumbY &&
+                                mouse.y <= thumbnailScrollBar.thumbY + thumbnailScrollBar.thumbHeight) {
+                                dragOffset = mouse.y - thumbnailScrollBar.thumbY
+                            } else {
+                                dragOffset = thumbnailScrollBar.thumbHeight / 2
+                                thumbnailScrollBar.scrollToThumbY(mouse.y - dragOffset)
+                            }
+                        }
+                        onPositionChanged: function(mouse) {
+                            if (pressed && thumbnailScrollBar.canScroll) {
+                                thumbnailScrollBar.scrollToThumbY(mouse.y - dragOffset)
+                            }
+                        }
+                        onWheel: function(wheel) {
+                            if (!thumbnailScrollBar.canScroll) { wheel.accepted = false; return }
+                            let delta = wheel.angleDelta.y ? wheel.angleDelta.y / 120 * thumbnails.slideStep : wheel.pixelDelta.y
+                            if (!delta) { wheel.accepted = false; return }
+                            thumbnails.cancelFlick()
+                            thumbnails.stopWheel()
+                            thumbnails.contentY = Math.max(thumbnails.originY,
+                                Math.min(thumbnails.originY + thumbnailScrollBar.maxScroll, thumbnails.contentY - delta))
+                            wheel.accepted = true
+                        }
+                    }
+                }
                 ListView {
                     id: thumbnails; objectName: "thumbnails"; Layout.fillWidth: true; Layout.fillHeight: true; clip: true
                     onActiveFocusChanged: if (activeFocus) win.focusedEditor = ""
