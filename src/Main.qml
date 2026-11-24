@@ -720,12 +720,23 @@ ApplicationWindow {
         function openEditor(name, isNew) {
             creatingNew = isNew
             error = ""
-            const loaded = deck.themeColors(name)
+            const target = name || deck.themeName
+            const loaded = deck.themeColors(target)
             colors = Object.assign({}, loaded)
-            themeNameInput.text = isNew ? (name ? name + "-custom" : "custom-theme") : (name || deck.themeName)
+            themeNameInput.text = isNew ? (target ? target + "-custom" : "custom-theme") : target
+            const idx = deck.themeNames.indexOf(target)
+            existingThemeSelector.currentIndex = idx >= 0 ? idx : 0
             open()
             themeNameInput.forceActiveFocus()
             if (isNew) themeNameInput.selectAll()
+        }
+        function loadExistingTheme(presetName) {
+            if (!presetName) return
+            error = ""
+            colors = Object.assign({}, deck.themeColors(presetName))
+            themeNameInput.text = creatingNew ? (presetName + "-custom") : presetName
+            const idx = deck.themeNames.indexOf(presetName)
+            if (idx >= 0) existingThemeSelector.currentIndex = idx
         }
         function setColor(key, value) {
             let next = Object.assign({}, colors)
@@ -737,6 +748,14 @@ ApplicationWindow {
             error = deck.saveTheme(themeNameInput.text, colors)
             if (!error) close()
         }
+        function saveAsCopy() {
+            const base = themeNameInput.text.trim() || deck.themeName || "theme"
+            const copyName = base.endsWith("-custom") ? base + "-2" : base + "-custom"
+            themeNameInput.text = copyName
+            creatingNew = true
+            error = deck.saveTheme(copyName, colors)
+            if (!error) close()
+        }
         background: Rectangle { color: win.ui.panel; border.color: win.ui.windowBorder; border.width: 2; radius: Math.max(6, win.rounding) }
         Overlay.modal: Rectangle { color: "#660b0d14" }
         contentItem: ColumnLayout {
@@ -746,35 +765,40 @@ ApplicationWindow {
                 ColumnLayout {
                     spacing: 2; Layout.fillWidth: true
                     Label {
-                        text: themeDialog.creatingNew ? "Create Theme" : "Edit Theme"
+                        text: themeDialog.creatingNew ? "Create New Theme" : "Edit Existing Theme"
                         color: win.ui.foreground; font.pixelSize: 20; font.bold: true
                     }
                     Label {
-                        text: "Customize all 9 theme color properties or load an existing preset"
+                        text: "Pick any existing theme on the right to edit it in place, or enter a new name below"
                         color: win.ui.muted; font.pixelSize: 13
                     }
                 }
-                ComboBox {
-                    id: presetLoader
-                    Layout.preferredWidth: 190; implicitHeight: 34
-                    model: ["Load preset…"].concat(deck.themeNames)
-                    currentIndex: 0
-                    onActivated: function(index) {
-                        if (index > 0) {
-                            const presetName = deck.themeNames[index - 1]
-                            themeDialog.colors = Object.assign({}, deck.themeColors(presetName))
-                            if (!themeDialog.creatingNew) themeNameInput.text = presetName
-                            currentIndex = 0
+                RowLayout {
+                    spacing: 8
+                    Label {
+                        text: "Existing theme:"
+                        color: win.ui.muted; font.pixelSize: 13; font.bold: true
+                    }
+                    ComboBox {
+                        id: existingThemeSelector; objectName: "existingThemeSelector"
+                        Layout.preferredWidth: 180; implicitHeight: 34
+                        model: deck.themeNames
+                        currentIndex: Math.max(0, deck.themeNames.indexOf(deck.themeName))
+                        onActivated: function(index) {
+                            if (index >= 0 && index < deck.themeNames.length) {
+                                themeDialog.creatingNew = false
+                                themeDialog.loadExistingTheme(deck.themeNames[index])
+                            }
                         }
-                    }
-                    contentItem: Text {
-                        leftPadding: 10; rightPadding: 10
-                        text: presetLoader.displayText; color: win.ui.foreground; font.pixelSize: 13
-                        verticalAlignment: Text.AlignVCenter; elide: Text.ElideRight
-                    }
-                    background: Rectangle {
-                        color: presetLoader.hovered ? win.ui.hover : win.ui.button
-                        border.color: win.ui.border; radius: Math.min(4, win.rounding)
+                        contentItem: Text {
+                            leftPadding: 10; rightPadding: 10
+                            text: existingThemeSelector.displayText; color: win.ui.foreground; font.pixelSize: 13; font.bold: true
+                            verticalAlignment: Text.AlignVCenter; elide: Text.ElideRight
+                        }
+                        background: Rectangle {
+                            color: existingThemeSelector.hovered ? win.ui.hover : win.ui.button
+                            border.color: win.ui.accent; radius: Math.min(4, win.rounding)
+                        }
                     }
                 }
             }
@@ -918,7 +942,17 @@ ApplicationWindow {
                     onClicked: themeDialog.close()
                 }
                 Button {
-                    id: saveThemeBtn; text: "Save & Apply"; implicitHeight: 38; implicitWidth: 130
+                    id: copyThemeBtn
+                    visible: !themeDialog.creatingNew
+                    text: "Save as Copy"; implicitHeight: 38; implicitWidth: 120
+                    contentItem: Text { text: parent.text; color: win.ui.foreground; font.pixelSize: 14; font.bold: true; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
+                    background: Rectangle { color: copyThemeBtn.hovered ? win.ui.hover : win.ui.button; radius: Math.min(4, win.rounding); border.color: win.ui.accent }
+                    onClicked: themeDialog.saveAsCopy()
+                }
+                Button {
+                    id: saveThemeBtn
+                    text: themeDialog.creatingNew ? "Create & Apply" : "Save Theme"
+                    implicitHeight: 38; implicitWidth: 140
                     contentItem: Text { text: parent.text; color: win.ui.accentText; font.pixelSize: 14; font.bold: true; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
                     background: Rectangle { color: saveThemeBtn.hovered ? win.ui.accentHover : win.ui.accent; radius: Math.min(4, win.rounding) }
                     onClicked: themeDialog.save()
@@ -1253,19 +1287,49 @@ ApplicationWindow {
                 Accessible.name: qsTr("Theme: %1").arg(deck.themeName)
                 ToolTip.visible: hovered; ToolTip.text: qsTr("Theme: %1").arg(deck.themeName)
                 delegate: ItemDelegate {
+                    id: themeRow
                     required property string modelData
                     required property int index
                     readonly property bool isAction: index >= deck.themeNames.length
                     width: themes.popup.availableWidth
                     text: modelData
                     highlighted: themes.highlightedIndex === index
-                    contentItem: Text {
-                        text: modelData
-                        color: parent.isAction ? win.ui.accent : win.ui.foreground
-                        font.family: themes.font.family
-                        font.pixelSize: themes.font.pixelSize
-                        font.bold: parent.isAction
-                        verticalAlignment: Text.AlignVCenter
+                    contentItem: RowLayout {
+                        spacing: 6
+                        Text {
+                            Layout.fillWidth: true
+                            text: themeRow.modelData
+                            color: themeRow.isAction ? win.ui.accent : win.ui.foreground
+                            font.family: themes.font.family
+                            font.pixelSize: themes.font.pixelSize
+                            font.bold: themeRow.isAction || themeRow.modelData === deck.themeName
+                            verticalAlignment: Text.AlignVCenter
+                            elide: Text.ElideRight
+                        }
+                        Rectangle {
+                            visible: !themeRow.isAction
+                            Layout.preferredWidth: 42; Layout.preferredHeight: 22
+                            radius: 4
+                            color: editThemeMouse.containsMouse ? win.ui.accent : Qt.alpha(win.ui.border, 0.45)
+                            Text {
+                                anchors.centerIn: parent
+                                text: "Edit"
+                                font.pixelSize: 11; font.bold: true
+                                color: editThemeMouse.containsMouse ? win.ui.accentText : win.ui.foreground
+                            }
+                            MouseArea {
+                                id: editThemeMouse
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: function(mouse) {
+                                    mouse.accepted = true
+                                    const targetTheme = themeRow.modelData
+                                    themes.popup.close()
+                                    Qt.callLater(function() { themeDialog.openEditor(targetTheme, false) })
+                                }
+                            }
+                        }
                     }
                     background: Rectangle {
                         color: parent.highlighted ? win.ui.hover : win.ui.panel
@@ -1291,7 +1355,7 @@ ApplicationWindow {
                     }
                 }
                 popup: Popup {
-                    y: themes.height + 4; width: 240; padding: 6
+                    y: themes.height + 4; width: 260; padding: 6
                     height: Math.min(contentItem.implicitHeight + 12, 460, win.height - 100)
                     background: Rectangle { color: win.ui.panel; border.color: win.ui.border; radius: win.rounding }
                     contentItem: ListView {

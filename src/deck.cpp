@@ -534,10 +534,13 @@ void Deck::redo() {
 void Deck::discoverThemes() {
     m_themes.clear();
     QString root = qEnvironmentVariable("OMARCHY_PATH", QDir::homePath() + "/.local/share/omarchy");
-    QStringList roots{root + "/themes", QDir::homePath() + "/omarchy/themes",
-                      QDir::homePath() + "/.config/omarchy/themes"};
-    if (!qEnvironmentVariableIsSet("OMARCHY_PATH"))
-        roots << QCoreApplication::applicationDirPath() + "/../themes";
+    QStringList roots;
+    if (!qEnvironmentVariableIsSet("OMARCHY_PATH")) {
+        roots << QCoreApplication::applicationDirPath() + "/../../../../themes"
+              << QCoreApplication::applicationDirPath() + "/../themes";
+    }
+    roots << root + "/themes" << QDir::homePath() + "/omarchy/themes"
+          << QDir::homePath() + "/.config/omarchy/themes";
     for (auto &r : roots)
         for (auto &name : QDir(r).entryList(QDir::Dirs | QDir::NoDotAndDotDot)) {
             QString path = r + "/" + name + "/colors.toml";
@@ -607,6 +610,7 @@ QVariantMap Deck::palette() const {
             colors[key] = v;
     }
     colors["font"] = scalar(m_parsed.header, "font", "JetBrains Mono");
+    colors["theme"] = themeName();
     m_paletteHeader = m_parsed.header;
     m_paletteCache = colors;
     return colors;
@@ -626,11 +630,13 @@ QVariantMap Deck::themeColors(const QString &name) const {
     if (m_themes.contains(target)) {
         for (const auto &[key, value] : readThemeColors(m_themes.value(target)))
             colors[key] = value;
-    } else if (name.isEmpty()) {
-        const auto current = palette();
-        for (auto it = colors.begin(); it != colors.end(); ++it)
-            if (current.contains(it.key()))
-                it.value() = current.value(it.key());
+    }
+    if (name.isEmpty() || target == themeName()) {
+        for (const auto &key : colors.keys()) {
+            const QString v = scalar(m_parsed.header, "color_" + key);
+            if (QColor(v).isValid())
+                colors[key] = v;
+        }
     }
     return colors;
 }
@@ -658,9 +664,14 @@ QString Deck::saveTheme(const QString &rawName, const QVariantMap &colors) {
         toml += key.toUtf8() + " = \"" + hex.toUtf8() + "\"\n";
     }
     QStringList dirs{QDir::homePath() + "/.config/omarchy/themes/" + name};
-    const QString bundledRoot = QCoreApplication::applicationDirPath() + "/../themes";
-    if (QFileInfo(bundledRoot).isDir() && QFileInfo(bundledRoot).isWritable())
-        dirs << bundledRoot + "/" + name;
+    if (m_themes.contains(name))
+        dirs << QFileInfo(m_themes.value(name)).absolutePath();
+    for (const QString &rel : {QStringLiteral("/../themes"), QStringLiteral("/../../../../themes")}) {
+        const QString root = QCoreApplication::applicationDirPath() + rel;
+        if (QFileInfo(root).isDir() && QFileInfo(root).isWritable())
+            dirs << root + "/" + name;
+    }
+    dirs.removeDuplicates();
     bool written = false;
     for (const QString &dir : dirs) {
         if (!QDir().mkpath(dir))
@@ -675,7 +686,10 @@ QString Deck::saveTheme(const QString &rawName, const QVariantMap &colors) {
     emit themesChanged();
     m_paletteHeader.clear();
     m_paletteCache.clear();
+    m_renderIds.clear();
+    ++m_revision;
     chooseTheme(name);
+    notifyChanged();
     setStatus(QStringLiteral("Saved theme ") + name);
     return {};
 }

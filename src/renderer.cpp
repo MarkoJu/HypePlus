@@ -698,12 +698,18 @@ static bool isFencedCodeBlock(const QTextBlock &block) {
            !bf.stringProperty(QTextFormat::BlockCodeLanguage).isEmpty() ||
            bf.nonBreakableLines();
 }
+static bool isLectureStyle(const QVariantMap &palette) {
+    const QString theme = palette.value("theme").toString().toLower();
+    if (!theme.isEmpty())
+        return theme == "lecture" || theme.startsWith("lecture-") || theme.startsWith("lecture_");
+    return palette.value("accent").toString().toLower() == "#0067a5";
+}
 static void sizeSlideText(QTextDocument &doc, const QVariantMap &palette, qreal fontSize,
                           qreal width, bool centered, bool code) {
     // A null page size suspends layout while every format below changes; the
     // final setTextWidth lays the document out once instead of once per run.
     doc.setPageSize(QSizeF(0, 0));
-    const bool lectureStyle = palette.value("accent").toString().toLower() == "#0067a5";
+    const bool lectureStyle = isLectureStyle(palette);
     QString monoFamily = QString("JetBrains Mono");
     if (!QFontDatabase::hasFamily(monoFamily))
         monoFamily = QFontDatabase::hasFamily("Menlo")
@@ -919,7 +925,7 @@ void paintSlide(QPainter *p, const QRectF &target, const QString &source, const 
         }
     }
     if (!media.file.isEmpty()) {
-        const bool lectureStyle = palette.value("accent").toString().toLower() == "#0067a5";
+        const bool lectureStyle = isLectureStyle(palette);
         const bool lectureDiagram =
             lectureStyle && !media.video && !media.span && !media.placed() && !text.isEmpty();
         QString path =
@@ -1053,7 +1059,7 @@ void paintSlide(QPainter *p, const QRectF &target, const QString &source, const 
         return;
     }
     if (!text.isEmpty()) {
-        const bool lectureStyle = palette.value("accent").toString().toLower() == "#0067a5";
+        const bool lectureStyle = isLectureStyle(palette);
         const bool lectureDiagram =
             lectureStyle && !media.file.isEmpty() && !media.video && !media.span && !media.placed();
         bool code = text.contains(
