@@ -902,6 +902,19 @@ void paintSlide(QPainter *p, const QRectF &target, const QString &source, const 
         p->fillRect(QRectF(0, 0, 1920, 1080), QColor(palette["background"].toString()));
     auto media = parseMedia(source, base);
     QString text = media.text;
+    QString bottomCaption;
+    if (isLectureStyle(palette) && !media.file.isEmpty() && !media.video && !media.span && !media.placed()) {
+        const QString cleanSource = withoutComments(source);
+        const auto m = mediaRe.match(outsideCode(cleanSource));
+        if (m.hasMatch()) {
+            const QString before = cleanSource.left(m.capturedStart()).trimmed();
+            const QString after = cleanSource.mid(m.capturedEnd()).trimmed();
+            if (!before.isEmpty() && !after.isEmpty()) {
+                text = before;
+                bottomCaption = after;
+            }
+        }
+    }
     if (text.startsWith('\n'))
         text.remove(0, 1);
     while (text.endsWith('\n') || text.endsWith('\r'))
@@ -931,7 +944,10 @@ void paintSlide(QPainter *p, const QRectF &target, const QString &source, const 
         QString path =
             media.video ? (media.poster.isEmpty() ? ensurePoster(media.path, base) : media.poster)
                         : media.path;
-        const QRectF rect = lectureDiagram ? QRectF(80, 175, 1760, 855) : mediaRect(media);
+        const QRectF rect = lectureDiagram
+                                ? (bottomCaption.isEmpty() ? QRectF(80, 175, 1760, 855)
+                                                           : QRectF(80, 165, 1760, 735))
+                                : mediaRect(media);
         const QSize pixels = p->deviceTransform().mapRect(rect).size().toSize();
         // An SVG with nothing over it is drawn as vectors, sharp at any size and in PDF. Its
         // small raster only gives its shape and edge colors for the background.
@@ -1008,22 +1024,6 @@ void paintSlide(QPainter *p, const QRectF &target, const QString &source, const 
                                        ? softenedImage(image, dest.size())
                                        : image);
             p->restore();
-            if (lectureStyle && (media.file == "logos.png" || media.file == "ceftaroline-thank-you.png" ||
-                                 media.file == "intro-2.png")) {
-                QImage bar(assetPath(base, "orange-bar.png", false));
-                if (!bar.isNull())
-                    p->drawImage(QRectF(130, 128, 112, 22), bar);
-                if (media.file == "ceftaroline-thank-you.png" || media.file == "intro-2.png") {
-                    QImage topLogos(assetPath(base, "logos.png", false));
-                    if (!topLogos.isNull()) {
-                        QSizeF logoScaled = topLogos.size();
-                        logoScaled.scale(QSizeF(384, 216), Qt::KeepAspectRatio);
-                        p->drawImage(QRectF((1920 - logoScaled.width()) / 2, 60,
-                                            logoScaled.width(), logoScaled.height()),
-                                     topLogos);
-                    }
-                }
-            }
         } else if (!overlayOnly && !backgroundOnly && !(lectureStyle && media.file == "orange-bar.png")) {
             p->setPen(QColor(palette["accent"].toString()));
             const QString message = tr("Missing media") + "\n" + media.file;
@@ -1060,6 +1060,133 @@ void paintSlide(QPainter *p, const QRectF &target, const QString &source, const 
     }
     if (!text.isEmpty()) {
         const bool lectureStyle = isLectureStyle(palette);
+        const QString trimmedText = text.trimmed();
+        const QString emphSpec = palette.value("heading_emphasis").toString().trimmed();
+        bool matchesEmphasisHeading = false;
+        if (!emphSpec.isEmpty() && emphSpec.toLower() != "none") {
+            for (const QString &rawPrefix : emphSpec.split(',')) {
+                const QString prefix = rawPrefix.trimmed();
+                if (!prefix.isEmpty() && trimmedText.startsWith(prefix)) {
+                    matchesEmphasisHeading = true;
+                    break;
+                }
+            }
+        }
+        const bool isSectionDivider =
+            matchesEmphasisHeading || (lectureStyle && media.file == "orange-bar.png");
+        const bool isFirstSlide =
+            palette.value("slide_role").toString() == "first" ||
+            media.file == "intro-2.png" || trimmedText.contains("### (");
+        const bool isLastSlide =
+            !isFirstSlide &&
+            (palette.value("slide_role").toString() == "last" ||
+             media.file == "ceftaroline-thank-you.png" || trimmedText.startsWith("# Thank you"));
+        const bool isHeaderBanner =
+            lectureStyle && !isSectionDivider &&
+            (isFirstSlide || isLastSlide || media.file == "logos.png");
+        const QString roleBgSpec =
+            (isFirstSlide  ? palette.value("first_slide_background")
+             : isLastSlide ? palette.value("last_slide_background")
+                           : palette.value("middle_slides_background"))
+                .toString()
+                .trimmed();
+        const QColor accentBarColor(palette.value("accent_bar", "#e89005").toString());
+        if (!overlayOnly) {
+            if (!roleBgSpec.isEmpty() && roleBgSpec.toLower() != "none") {
+                const QStringList parts = roleBgSpec.split('|');
+                for (const QString &rawPart : parts) {
+                    const QString part = rawPart.trimmed();
+                    if (part.isEmpty())
+                        continue;
+                    const bool isMarkdownImage = part.startsWith("![") && part.contains("](");
+                    const QString suffix = QFileInfo(part).suffix().toLower();
+                    const bool isBareImage =
+                        !isMarkdownImage &&
+                        QStringList{"png", "jpg", "jpeg", "webp", "svg"}.contains(suffix);
+                    if (isMarkdownImage || isBareImage) {
+                        const QString mdSpec =
+                            isMarkdownImage ? part : QString("![position=top size=20%](%1)").arg(part);
+                        Media bgMedia = readMedia(mdSpec, base);
+                        if (bgMedia.file.isEmpty() || bgMedia.file == media.file)
+                            continue;
+                        if (!QFileInfo::exists(bgMedia.path)) {
+                            if (QFileInfo(bgMedia.file).isAbsolute() && QFileInfo::exists(bgMedia.file)) {
+                                bgMedia.path = bgMedia.file;
+                            } else {
+                                const QString themeDir = palette.value("theme_dir").toString();
+                                if (!themeDir.isEmpty() && QFileInfo::exists(themeDir + "/" + bgMedia.file))
+                                    bgMedia.path = themeDir + "/" + bgMedia.file;
+                            }
+                        }
+                        QImage bgImg(bgMedia.path);
+                        if (!bgImg.isNull()) {
+                            if (lectureStyle && bgMedia.file == "logos.png" &&
+                                (bgMedia.position == "top" || bgMedia.position.isEmpty()) &&
+                                qFuzzyCompare(bgMedia.size > 0 ? bgMedia.size : 20.0, 20.0)) {
+                                QSizeF logoScaled = bgImg.size();
+                                logoScaled.scale(QSizeF(384, 216), Qt::KeepAspectRatio);
+                                p->drawImage(QRectF((1920 - logoScaled.width()) / 2, 60,
+                                                    logoScaled.width(), logoScaled.height()),
+                                             bgImg);
+                            } else if (lectureStyle && bgMedia.file == "orange-bar.png" &&
+                                       (bgMedia.position == "top-left" || bgMedia.position.isEmpty()) &&
+                                       qFuzzyCompare(bgMedia.size > 0 ? bgMedia.size : 6.0, 6.0)) {
+                                p->drawImage(QRectF(130, 128, 112, 22), bgImg);
+                            } else {
+                                if (!bgMedia.placed()) {
+                                    bgMedia.position = "top";
+                                    bgMedia.size = 20;
+                                    bgMedia.alignment = Qt::AlignHCenter | Qt::AlignTop;
+                                }
+                                const QRectF dest = mediaImageRect(bgMedia, bgImg.size());
+                                p->drawImage(dest, bgImg);
+                            }
+                        }
+                    } else {
+                        QString textContent = part;
+                        QString pos = (isFirstSlide || isLastSlide) ? QStringLiteral("bottom")
+                                                                    : QStringLiteral("bottom-left");
+                        int pixelSize = 22;
+                        static const QRegularExpression textDirRe(
+                            QStringLiteral("^\\[([^\\]]+)\\]\\s*(.*)$"));
+                        const auto tm = textDirRe.match(part);
+                        if (tm.hasMatch()) {
+                            const QString flags = tm.captured(1);
+                            textContent = tm.captured(2).trimmed();
+                            static const QRegularExpression posRe(QStringLiteral("position=([a-z-]+)"));
+                            const auto pm = posRe.match(flags);
+                            if (pm.hasMatch() && mediaPositions().contains(pm.captured(1)))
+                                pos = pm.captured(1);
+                            static const QRegularExpression sizeRe(QStringLiteral("size=(\\d+(?:\\.\\d+)?)(%|px)?"));
+                            const auto sm = sizeRe.match(flags);
+                            if (sm.hasMatch()) {
+                                const double val = sm.captured(1).toDouble();
+                                pixelSize = qBound(12, qRound(val), 96);
+                            }
+                        }
+                        if (!textContent.isEmpty()) {
+                            Qt::Alignment align = Qt::AlignHCenter | Qt::AlignBottom;
+                            for (const auto &[pName, pAlign] : placements())
+                                if (pName == pos)
+                                    align = pAlign;
+                            const qreal boxY = (align & Qt::AlignTop)      ? 54
+                                               : (align & Qt::AlignBottom) ? 1004
+                                                                           : 512;
+                            p->save();
+                            QFont footerFont(palette.value("font", "Helvetica Neue").toString());
+                            footerFont.setPixelSize(pixelSize);
+                            p->setFont(footerFont);
+                            p->setPen(QColor(
+                                palette.value("dark_foreground", palette.value("foreground")).toString()));
+                            p->drawText(QRectF(130, boxY, 1660, qMax(44, pixelSize + 16)),
+                                        (align & Qt::AlignHorizontal_Mask) | Qt::AlignVCenter,
+                                        textContent);
+                            p->restore();
+                        }
+                    }
+                }
+            }
+        }
         const bool lectureDiagram =
             lectureStyle && !media.file.isEmpty() && !media.video && !media.span && !media.placed();
         bool code = text.contains(
@@ -1070,7 +1197,7 @@ void paintSlide(QPainter *p, const QRectF &target, const QString &source, const 
         bool table = text.contains(tableDelimiter());
         // A table alone on its slide sits in the middle; beside other text it lines up with it.
         const bool tableOnly = table && !text.split('\n').filter(QRegularExpression("^(?!.*\\|).*\\S")).size();
-        bool centered = lectureStyle ? (media.placed() && media.file != "orange-bar.png")
+        bool centered = lectureStyle ? (isHeaderBanner || (media.placed() && media.file != "orange-bar.png"))
                                      : (tableOnly || !(code || quote || list || table));
         const QString alignment = slideProperty(source, "alignment");
         if (alignment == "left")
@@ -1117,10 +1244,8 @@ void paintSlide(QPainter *p, const QRectF &target, const QString &source, const 
                                   ? area.y()
                                   : area.y() + qMax(0.0, (area.height() - doc.size().height()) / 2);
         p->translate(area.x(), yOffset);
-        if (lectureStyle && media.file == "orange-bar.png") {
-            QImage bar(media.path);
-            if (!bar.isNull())
-                p->drawImage(QRectF(0, -42, 112, 22), bar);
+        if (isSectionDivider && accentBarColor.isValid()) {
+            p->fillRect(QRectF(0, -42, 112, 22), accentBarColor);
         }
         if (lectureStyle && code) {
             for (QTextBlock b = doc.begin(); b.isValid();) {
@@ -1148,6 +1273,29 @@ void paintSlide(QPainter *p, const QRectF &target, const QString &source, const 
         context.palette.setColor(QPalette::Text, QColor(palette["foreground"].toString()));
         doc.documentLayout()->draw(p, context);
         p->restore();
+        if (!bottomCaption.isEmpty()) {
+            const QRectF capArea(100, 916, 1720, 132);
+            QTextDocument capDoc;
+            qreal capLow = 14, capHigh = 28;
+            layoutSlideText(capDoc, bottomCaption, palette, capHigh, capArea.width(), false, false);
+            if (capDoc.size().height() > capArea.height()) {
+                for (int iteration = 0; iteration < 8; ++iteration) {
+                    qreal mid = (capLow + capHigh) / 2;
+                    sizeSlideText(capDoc, palette, mid, capArea.width(), false, false);
+                    if (capDoc.size().height() <= capArea.height())
+                        capLow = mid;
+                    else
+                        capHigh = mid;
+                }
+                sizeSlideText(capDoc, palette, capLow, capArea.width(), false, false);
+            }
+            highlightCode(capDoc, palette);
+            p->save();
+            const qreal capY = capArea.y() + qMax(0.0, (capArea.height() - capDoc.size().height()) / 2);
+            p->translate(capArea.x(), capY);
+            capDoc.documentLayout()->draw(p, context);
+            p->restore();
+        }
     }
     if (!problems.isEmpty()) {
         p->setPen(Qt::white);

@@ -593,24 +593,70 @@ void Deck::chooseFont(const QString &family) {
     const QString header = setScalar(m_parsed.header, "font", family);
     replaceHeader(header);
 }
+static QString readThemeString(const QString &path, const QString &key) {
+    QFile file(path);
+    if (path.isEmpty() || !file.open(QIODevice::ReadOnly))
+        return {};
+    const QRegularExpression entry(
+        "^\\s*" + QRegularExpression::escape(key) + "\\s*=\\s*([\"'])([^\"']*)\\1\\s*(?:#.*)?\\s*$");
+    while (!file.atEnd()) {
+        const auto match = entry.match(QString::fromUtf8(file.readLine()));
+        if (match.hasMatch())
+            return match.captured(2).trimmed();
+    }
+    return {};
+}
 QStringList Deck::themeNames() const { return m_themes.keys(); }
 QString Deck::themeName() const { return scalar(m_parsed.header, "theme", "tokyo-night"); }
 QVariantMap Deck::palette() const {
     if (!m_paletteCache.isEmpty() && m_paletteHeader == m_parsed.header)
         return m_paletteCache;
+    const QString activeTheme = themeName();
+    const QString themePath = m_themes.value(activeTheme);
+    const bool isLecture = activeTheme.toLower().startsWith("lecture");
     QVariantMap colors{
         {"background", "#1a1b26"}, {"foreground", "#c0caf5"}, {"accent", "#7aa2f7"},
         {"green", "#9ece6a"},      {"red", "#f7768e"},        {"yellow", "#e0af68"},
-        {"magenta", "#bb9af7"},    {"cyan", "#7dcfff"},       {"dark_foreground", "#787c99"}};
-    for (const auto &[key, value] : readThemeColors(m_themes.value(themeName())))
+        {"magenta", "#bb9af7"},    {"cyan", "#7dcfff"},       {"dark_foreground", "#787c99"},
+        {"accent_bar", isLecture ? "#e89005" : "#e0af68"}};
+    for (const auto &[key, value] : readThemeColors(themePath))
         colors[key] = value;
     for (const auto &key : colors.keys()) {
         QString v = scalar(m_parsed.header, "color_" + key);
         if (QColor(v).isValid())
             colors[key] = v;
     }
+    auto normalizeBgSpec = [](QString spec) {
+        spec = spec.trimmed();
+        if (spec == QStringLiteral("logos.png") ||
+            spec == QStringLiteral("![position=top size=20%](logos.png)"))
+            return QStringLiteral("![position=top size=20%](logos.png) | ![position=top-left size=6%](orange-bar.png)");
+        return spec;
+    };
+    QString firstBg = readThemeString(themePath, QStringLiteral("first_slide_background"));
+    if (firstBg.isEmpty())
+        firstBg = readThemeString(themePath, QStringLiteral("header_logo"));
+    if (firstBg.isEmpty() && isLecture)
+        firstBg = QStringLiteral("![position=top size=20%](logos.png) | ![position=top-left size=6%](orange-bar.png)");
+    firstBg = normalizeBgSpec(firstBg);
+    QString middleBg = normalizeBgSpec(readThemeString(themePath, QStringLiteral("middle_slides_background")));
+    QString lastBg = readThemeString(themePath, QStringLiteral("last_slide_background"));
+    if (lastBg.isEmpty() && isLecture)
+        lastBg = firstBg;
+    lastBg = normalizeBgSpec(lastBg);
+    QString headingEmphasis = readThemeString(themePath, QStringLiteral("heading_emphasis"));
+    if (headingEmphasis.isEmpty() && isLecture)
+        headingEmphasis = QStringLiteral("### PART, ### SUPPLEMENT");
+    if (headingEmphasis.toLower() == QStringLiteral("none"))
+        headingEmphasis.clear();
+    colors["first_slide_background"] = scalar(m_parsed.header, "first_slide_background", firstBg);
+    colors["middle_slides_background"] = scalar(m_parsed.header, "middle_slides_background", middleBg);
+    colors["last_slide_background"] = scalar(m_parsed.header, "last_slide_background", lastBg);
+    colors["heading_emphasis"] = scalar(m_parsed.header, "heading_emphasis", headingEmphasis);
+    colors["header_logo"] = colors["first_slide_background"];
+    colors["theme_dir"] = themePath.isEmpty() ? QString() : QFileInfo(themePath).absolutePath();
     colors["font"] = scalar(m_parsed.header, "font", "JetBrains Mono");
-    colors["theme"] = themeName();
+    colors["theme"] = activeTheme;
     m_paletteHeader = m_parsed.header;
     m_paletteCache = colors;
     return colors;
@@ -622,13 +668,16 @@ void Deck::chooseTheme(const QString &name) {
     replaceHeader(themedHeader(m_parsed.header, name, m_themes.value(name)));
 }
 QVariantMap Deck::themeColors(const QString &name) const {
+    const QString target = name.isEmpty() ? themeName() : name;
+    const bool isLecture = target.toLower().startsWith("lecture");
     QVariantMap colors{
         {"background", "#1a1b26"}, {"foreground", "#c0caf5"}, {"accent", "#7aa2f7"},
         {"green", "#9ece6a"},      {"red", "#f7768e"},        {"yellow", "#e0af68"},
-        {"magenta", "#bb9af7"},    {"cyan", "#7dcfff"},       {"dark_foreground", "#787c99"}};
-    const QString target = name.isEmpty() ? themeName() : name;
+        {"magenta", "#bb9af7"},    {"cyan", "#7dcfff"},       {"dark_foreground", "#787c99"},
+        {"accent_bar", isLecture ? "#e89005" : "#e0af68"}};
+    const QString themePath = m_themes.value(target);
     if (m_themes.contains(target)) {
-        for (const auto &[key, value] : readThemeColors(m_themes.value(target)))
+        for (const auto &[key, value] : readThemeColors(themePath))
             colors[key] = value;
     }
     if (name.isEmpty() || target == themeName()) {
@@ -638,6 +687,33 @@ QVariantMap Deck::themeColors(const QString &name) const {
                 colors[key] = v;
         }
     }
+    auto normalizeBgSpec = [](QString spec) {
+        spec = spec.trimmed();
+        if (spec == QStringLiteral("logos.png") ||
+            spec == QStringLiteral("![position=top size=20%](logos.png)"))
+            return QStringLiteral("![position=top size=20%](logos.png) | ![position=top-left size=6%](orange-bar.png)");
+        return spec;
+    };
+    QString firstBg = readThemeString(themePath, QStringLiteral("first_slide_background"));
+    if (firstBg.isEmpty())
+        firstBg = readThemeString(themePath, QStringLiteral("header_logo"));
+    if (firstBg.isEmpty() && isLecture)
+        firstBg = QStringLiteral("![position=top size=20%](logos.png) | ![position=top-left size=6%](orange-bar.png)");
+    firstBg = normalizeBgSpec(firstBg);
+    QString middleBg = normalizeBgSpec(readThemeString(themePath, QStringLiteral("middle_slides_background")));
+    QString lastBg = readThemeString(themePath, QStringLiteral("last_slide_background"));
+    if (lastBg.isEmpty() && isLecture)
+        lastBg = firstBg;
+    lastBg = normalizeBgSpec(lastBg);
+    QString headingEmphasis = readThemeString(themePath, QStringLiteral("heading_emphasis"));
+    if (headingEmphasis.isEmpty() && isLecture)
+        headingEmphasis = QStringLiteral("### PART, ### SUPPLEMENT");
+    if (headingEmphasis.toLower() == QStringLiteral("none"))
+        headingEmphasis.clear();
+    colors["first_slide_background"] = firstBg;
+    colors["middle_slides_background"] = middleBg;
+    colors["last_slide_background"] = lastBg;
+    colors["heading_emphasis"] = headingEmphasis;
     return colors;
 }
 QString Deck::pickColor(const QString &initialHex) const {
@@ -645,6 +721,33 @@ QString Deck::pickColor(const QString &initialHex) const {
     const QColor chosen = QColorDialog::getColor(initial.isValid() ? initial : QColor("#0067a5"),
                                                  nullptr, QStringLiteral("Choose Theme Color"));
     return chosen.isValid() ? chosen.name(QColor::HexRgb) : QString();
+}
+QString Deck::pickThemeImage() const {
+    QString error;
+    const QString chosen = FileDialog::choose(
+        false, dialogDirectory(), QStringLiteral("Theme Background Image"),
+        {"*.png", "*.jpg", "*.jpeg", "*.webp", "*.svg"}, &error);
+    return chosen;
+}
+QUrl Deck::resolveThemeImageUrl(const QString &rawFile) const {
+    const QString file = rawFile.trimmed();
+    if (file.isEmpty())
+        return {};
+    if (QFileInfo(file).isAbsolute() && QFileInfo::exists(file))
+        return QUrl::fromLocalFile(file);
+    QStringList candidates{
+        baseDir() + "/images/" + file,
+        baseDir() + "/" + file,
+    };
+    for (const QString &themePath : m_themes.values()) {
+        candidates << QFileInfo(themePath).absolutePath() + "/" + file;
+    }
+    for (const QString &rel : {QStringLiteral("/../themes/lecture/"), QStringLiteral("/../../../../themes/lecture/")})
+        candidates << QCoreApplication::applicationDirPath() + rel + file;
+    for (const QString &c : candidates)
+        if (QFileInfo::exists(c))
+            return QUrl::fromLocalFile(QFileInfo(c).absoluteFilePath());
+    return {};
 }
 QString Deck::saveTheme(const QString &rawName, const QVariantMap &colors) {
     const QString name = rawName.trimmed().toLower();
@@ -672,6 +775,46 @@ QString Deck::saveTheme(const QString &rawName, const QVariantMap &colors) {
             dirs << root + "/" + name;
     }
     dirs.removeDuplicates();
+    static const QRegularExpression mdImagePathRe(QStringLiteral("!\\[([^\\]]*)\\]\\(([^)]+)\\)"));
+    for (const QString &bgKey : {QStringLiteral("first_slide_background"),
+                                 QStringLiteral("middle_slides_background"),
+                                 QStringLiteral("last_slide_background")}) {
+        QString val = colors.value(bgKey).toString().trimmed();
+        if (val.isEmpty())
+            continue;
+        auto copyIfLocal = [&](const QString &candidate) -> QString {
+            QFileInfo fi(candidate);
+            if (fi.isAbsolute() && fi.isFile()) {
+                for (const QString &dir : dirs) {
+                    QDir().mkpath(dir);
+                    const QString dest = dir + "/" + fi.fileName();
+                    if (fi.absoluteFilePath() != QFileInfo(dest).absoluteFilePath()) {
+                        QFile::remove(dest);
+                        QFile::copy(fi.absoluteFilePath(), dest);
+                    }
+                }
+                return fi.fileName();
+            }
+            return candidate;
+        };
+        auto m = mdImagePathRe.match(val);
+        if (m.hasMatch()) {
+            const QString replacedFile = copyIfLocal(m.captured(2).trimmed());
+            val.replace(m.capturedStart(2), m.capturedLength(2), replacedFile);
+        } else {
+            val = copyIfLocal(val);
+        }
+        val.replace('"', '\'');
+        toml += bgKey.toUtf8() + " = \"" + val.toUtf8() + "\"\n";
+    }
+    const QString accentBar = colors.value(QStringLiteral("accent_bar")).toString().trimmed().toLower();
+    if (validHex.match(accentBar).hasMatch())
+        toml += "accent_bar = \"" + accentBar.toUtf8() + "\"\n";
+    if (colors.contains(QStringLiteral("heading_emphasis"))) {
+        QString emph = colors.value(QStringLiteral("heading_emphasis")).toString().trimmed();
+        emph.replace('"', '\'');
+        toml += "heading_emphasis = \"" + (emph.isEmpty() ? QByteArray("none") : emph.toUtf8()) + "\"\n";
+    }
     bool written = false;
     for (const QString &dir : dirs) {
         if (!QDir().mkpath(dir))
@@ -1313,14 +1456,17 @@ QString Deck::savePastedMedia(const QString &value) {
 QString Deck::renderId(int index) const {
     auto &cached = m_renderIds[index];
     const QString source = slide(index), base = baseDir();
-    const auto colors = palette();
+    auto colors = palette();
+    colors["slide_role"] = index == 0 ? QStringLiteral("first")
+                                      : (index > 0 && index == count() - 1 ? QStringLiteral("last")
+                                                                           : QStringLiteral("middle"));
     if (cached.source == source && cached.base == base && cached.palette == colors &&
         cached.clock.isValid() && cached.clock.elapsed() < 1000)
         return cached.id;
     QByteArray bytes;
     QDataStream stream(&bytes, QIODevice::WriteOnly);
     // A slide with problems shows them on a banner, in the window's language.
-    stream << slide(index) << baseDir() << palette() << translationGeneration();
+    stream << source << base << colors << translationGeneration();
     auto media = parseMedia(slide(index), baseDir());
     for (const QString &path : {media.path, media.poster}) {
         QFileInfo file(path);
@@ -1563,8 +1709,12 @@ bool Deck::exportPdf(const QString &path) {
                 setStatus(tr("Could not create PDF page"));
                 return false;
             }
+            auto slidePalette = palette();
+            slidePalette["slide_role"] =
+                i == 0 ? QStringLiteral("first")
+                       : (i > 0 && i == count() - 1 ? QStringLiteral("last") : QStringLiteral("middle"));
             paintSlide(&painter, QRectF(0, 0, writer.width(), writer.height()), slide(i), baseDir(),
-                       palette());
+                       slidePalette);
         }
         painter.end();
     }
@@ -1617,8 +1767,12 @@ bool Deck::renderImages(const QString &directory, int width, bool powerPoint) {
     });
     struct Still { QString name, warning; bool saved = false; };
     QList<QFuture<Still>> rendered;
-    for (int i = 0; i < count(); ++i)
-        rendered << QtConcurrent::run(&stills, [&stopped, source = slide(i), base = baseDir(), colors = palette(),
+    for (int i = 0; i < count(); ++i) {
+        auto slidePalette = palette();
+        slidePalette["slide_role"] =
+            i == 0 ? QStringLiteral("first")
+                   : (i > 0 && i == count() - 1 ? QStringLiteral("last") : QStringLiteral("middle"));
+        rendered << QtConcurrent::run(&stills, [&stopped, source = slide(i), base = baseDir(), colors = slidePalette,
                                                 width, directory, powerPoint, i]() -> Still {
             if (stopped)
                 return {};
@@ -1640,6 +1794,7 @@ bool Deck::renderImages(const QString &directory, int width, bool powerPoint) {
                 still.saved = opaque(image) ? image.convertToFormat(QImage::Format_RGB32).save(path) : image.save(path);
             return still;
         });
+    }
     if (!overlap) {
         const double portion = 0.8;
         while (!stills.waitForDone(100)) {

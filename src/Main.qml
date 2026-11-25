@@ -692,34 +692,135 @@ ApplicationWindow {
             }
         }
     }
+    function openThemeStudio() { themeDialog.openEditor(deck.themeName, false) }
     Popup {
         id: themeDialog; objectName: "themeDialog"
         parent: Overlay.overlay
         anchors.centerIn: parent
-        modal: true; focus: true; padding: 24
+        modal: true; focus: true; padding: 18
         closePolicy: Popup.CloseOnEscape
-        width: Math.min(740, parent.width - 48)
+        width: Math.max(860, parent.width - 28)
+        height: Math.max(580, parent.height - 28)
         property bool creatingNew: false
         property string error: ""
+        property string previewRole: "first" // "first", "middle", "last"
         property var colors: ({
             "background": "#ffffff", "foreground": "#1e293b", "accent": "#0067a5",
-            "cyan": "#00798c", "green": "#2e7d32", "yellow": "#c46d00",
-            "magenta": "#6b3fa0", "red": "#c62828", "dark_foreground": "#52606d"
+            "cyan": "#00798c", "green": "#98c379", "yellow": "#e5c07b",
+            "magenta": "#56b6c2", "red": "#e5c07b", "dark_foreground": "#8b949e",
+            "first_slide_background": "![position=top size=20%](logos.png) | ![position=top-left size=6%](orange-bar.png)",
+            "middle_slides_background": "",
+            "last_slide_background": "![position=top size=20%](logos.png) | ![position=top-left size=6%](orange-bar.png)",
+            "accent_bar": "#e89005",
+            "heading_emphasis": "### PART, ### SUPPLEMENT"
         })
         readonly property var fields: [
-            { key: "background", label: "Slide Background", hint: "Canvas & slide fill" },
-            { key: "foreground", label: "Body Text", hint: "Paragraphs, lists & tables" },
-            { key: "accent", label: "Headings & Bold", hint: "Titles, bold & functions" },
-            { key: "cyan", label: "Subheadings & Symbols", hint: "H2–H6 & code operators" },
-            { key: "magenta", label: "Code Keywords", hint: "def, return, if, import" },
-            { key: "yellow", label: "Code Types & Classes", hint: "Types & class names" },
-            { key: "green", label: "Code Strings", hint: "Quoted strings & regexes" },
-            { key: "red", label: "Numbers & Variables", hint: "Numeric literals & vars" },
-            { key: "dark_foreground", label: "Code Comments", hint: "Comments & muted text" }
+            { key: "background", label: "Slide Background", hint: "Main slide canvas fill color" },
+            { key: "foreground", label: "Body Text", hint: "Paragraphs, bullet lists & table cells" },
+            { key: "accent", label: "Headings & Bold", hint: "# H1 titles, **bold** text & code functions" },
+            { key: "cyan", label: "Subheadings & Symbols", hint: "## H2–H6 headings & code operators" },
+            { key: "magenta", label: "Code Keywords", hint: "Language keywords (def, return, import)" },
+            { key: "yellow", label: "Code Types & Classes", hint: "Class names & type annotations" },
+            { key: "green", label: "Code Strings", hint: "Quoted string literals & regexes" },
+            { key: "red", label: "Numbers & Variables", hint: "Numeric constants & variables" },
+            { key: "dark_foreground", label: "Code Comments", hint: "Code comments (#, //) & muted captions" }
         ]
+        readonly property var slideBackgroundFields: [
+            {
+                key: "first_slide_background",
+                role: "first",
+                label: "1. First Slide — Background",
+                hint: "Automatic logo, picture or text placed on Slide 1 (the opening title slide)"
+            },
+            {
+                key: "middle_slides_background",
+                role: "middle",
+                label: "2. Slides in Between — Background",
+                hint: "Automatic logo, watermark or footer/header text placed on Slides 2 through N-1"
+            },
+            {
+                key: "last_slide_background",
+                role: "last",
+                label: "3. Last Slide — Background",
+                hint: "Automatic logo, picture or closing text placed on the final / Thank-you slide"
+            }
+        ]
+        readonly property var positionOptions: [
+            "top", "top-left", "top-right", "left", "center", "right", "bottom-left", "bottom", "bottom-right"
+        ]
+        readonly property var sizeOptions: [
+            "6%", "10%", "15%", "20%", "25%", "28%", "35%", "50%"
+        ]
+        function parseSingleBgPart(part, defaultPos) {
+            const raw = (part || "").trim()
+            if (!raw) return { empty: true, isImage: false, pos: defaultPos || "top", size: "20%", sizeNum: 20, file: "", text: "" }
+            const mdMatch = /^!\[([^\]]*)\]\(([^)]+)\)$/.exec(raw)
+            if (mdMatch) {
+                const flags = mdMatch[1]
+                const file = mdMatch[2].trim()
+                const pm = /position=([a-z-]+)/.exec(flags)
+                const sm = /size=([0-9.]+)%?/.exec(flags)
+                const pos = pm ? pm[1] : (defaultPos || "top")
+                const sizeNum = sm ? parseFloat(sm[1]) : 20
+                return { empty: false, isImage: true, pos: pos, size: sizeNum + "%", sizeNum: sizeNum, file: file, text: "" }
+            }
+            const txtMatch = /^\[([^\]]*)\]\s*(.+)$/.exec(raw)
+            if (txtMatch) {
+                const flags = txtMatch[1]
+                const textVal = txtMatch[2].trim()
+                const pm = /position=([a-z-]+)/.exec(flags)
+                const sm = /size=([0-9.]+)(?:%|px)?/.exec(flags)
+                const pos = pm ? pm[1] : (defaultPos || "bottom")
+                const sizeNum = sm ? parseFloat(sm[1]) : 20
+                return { empty: false, isImage: false, pos: pos, size: sizeNum + "%", sizeNum: sizeNum, file: "", text: textVal }
+            }
+            if (/\.(png|jpg|jpeg|webp|svg)$/i.test(raw)) {
+                return { empty: false, isImage: true, pos: defaultPos || "top", size: "20%", sizeNum: 20, file: raw, text: "" }
+            }
+            return { empty: false, isImage: false, pos: defaultPos || "bottom", size: "20%", sizeNum: 20, file: "", text: raw }
+        }
+        function parseBgSpec(spec, defaultPos) {
+            const raw = (spec || "").trim()
+            if (!raw) return parseSingleBgPart("", defaultPos)
+            return parseSingleBgPart(raw.split("|")[0], defaultPos)
+        }
+        function parseBgList(spec, defaultPos) {
+            const raw = (spec || "").trim()
+            if (!raw) return []
+            const parts = raw.split("|")
+            let list = []
+            for (let i = 0; i < parts.length; ++i) {
+                const item = parseSingleBgPart(parts[i], defaultPos)
+                if (!item.empty) list.push(item)
+            }
+            return list
+        }
+        function updateBgDirective(key, newPos, newSize, newFile, appendNew) {
+            let current = (colors[key] || "").trim()
+            const defaultPos = key === "middle_slides_background" ? "bottom-left" : "top"
+            if (appendNew && newFile) {
+                const added = "![position=" + (newPos || "top-left") + " size=" + (newSize || "15%") + "](" + newFile + ")"
+                setColor(key, current.length > 0 ? (current + " | " + added) : added)
+                return
+            }
+            const parts = current.length > 0 ? current.split("|").map(function(s) { return s.trim() }) : [""]
+            const parsed = parseSingleBgPart(parts[0], defaultPos)
+            let pos = newPos || parsed.pos || defaultPos
+            let size = newSize || parsed.size || "20%"
+            let file = newFile || parsed.file
+            let isText = !newFile && !parsed.isImage && parsed.text.length > 0
+            if (isText) {
+                parts[0] = "[position=" + pos + " size=" + size + "] " + parsed.text
+            } else {
+                if (!file) file = "logos.png"
+                parts[0] = "![position=" + pos + " size=" + size + "](" + file + ")"
+            }
+            setColor(key, parts.filter(function(s) { return s.length > 0 }).join(" | "))
+        }
         function openEditor(name, isNew) {
             creatingNew = isNew
             error = ""
+            previewRole = "first"
             const target = name || deck.themeName
             const loaded = deck.themeColors(target)
             colors = Object.assign({}, loaded)
@@ -757,31 +858,32 @@ ApplicationWindow {
             if (!error) close()
         }
         background: Rectangle { color: win.ui.panel; border.color: win.ui.windowBorder; border.width: 2; radius: Math.max(6, win.rounding) }
-        Overlay.modal: Rectangle { color: "#660b0d14" }
+        Overlay.modal: Rectangle { color: "#800b0d14" }
         contentItem: ColumnLayout {
-            spacing: 16
+            spacing: 8
+            // Top Studio Header Bar
             RowLayout {
-                Layout.fillWidth: true; spacing: 12
+                Layout.fillWidth: true; spacing: 16
                 ColumnLayout {
-                    spacing: 2; Layout.fillWidth: true
+                    spacing: 2; Layout.preferredWidth: 0; Layout.fillWidth: true
                     Label {
-                        text: themeDialog.creatingNew ? "Create New Theme" : "Edit Existing Theme"
+                        text: themeDialog.creatingNew ? "Theme Studio — Create New Theme" : "Theme Studio — Edit Theme (" + (themeNameInput.text || deck.themeName) + ")"
                         color: win.ui.foreground; font.pixelSize: 20; font.bold: true
                     }
                     Label {
-                        text: "Pick any existing theme on the right to edit it in place, or enter a new name below"
-                        color: win.ui.muted; font.pixelSize: 13
+                        text: "Configure all 9 slide & code syntax color roles plus automatic backgrounds for the First, Middle, and Last slides"
+                        color: win.ui.muted; font.pixelSize: 12; Layout.fillWidth: true; elide: Text.ElideRight
                     }
                 }
                 RowLayout {
-                    spacing: 8
+                    spacing: 10
                     Label {
-                        text: "Existing theme:"
-                        color: win.ui.muted; font.pixelSize: 13; font.bold: true
+                        text: "Load existing theme:"
+                        color: win.ui.foreground; font.pixelSize: 13; font.bold: true
                     }
                     ComboBox {
                         id: existingThemeSelector; objectName: "existingThemeSelector"
-                        Layout.preferredWidth: 180; implicitHeight: 34
+                        Layout.preferredWidth: 185; implicitHeight: 32
                         model: deck.themeNames
                         currentIndex: Math.max(0, deck.themeNames.indexOf(deck.themeName))
                         onActivated: function(index) {
@@ -800,64 +902,341 @@ ApplicationWindow {
                             border.color: win.ui.accent; radius: Math.min(4, win.rounding)
                         }
                     }
-                }
-            }
-            RowLayout {
-                Layout.fillWidth: true; spacing: 12
-                Label { text: "Theme name"; color: win.ui.foreground; font.pixelSize: 14; font.bold: true; Layout.preferredWidth: 100 }
-                TextField {
-                    id: themeNameInput; objectName: "themeNameInput"
-                    Layout.fillWidth: true; implicitHeight: 38
-                    placeholderText: "e.g. my-lecture"
-                    font.pixelSize: 15; color: win.ui.foreground
-                    selectionColor: win.ui.selection; selectedTextColor: win.ui.selectionText
-                    leftPadding: 12; rightPadding: 12
-                    background: Rectangle {
-                        color: win.ui.background; radius: Math.min(4, win.rounding)
-                        border.color: themeNameInput.activeFocus ? win.ui.accent : win.ui.border
+                    Label {
+                        text: "Theme name:"
+                        color: win.ui.foreground; font.pixelSize: 13; font.bold: true
                     }
-                    onTextEdited: themeDialog.error = ""
-                    onAccepted: themeDialog.save()
+                    TextField {
+                        id: themeNameInput; objectName: "themeNameInput"
+                        Layout.preferredWidth: 190; implicitHeight: 32
+                        placeholderText: "e.g. my-lecture"
+                        font.pixelSize: 14; color: win.ui.foreground
+                        selectionColor: win.ui.selection; selectedTextColor: win.ui.selectionText
+                        leftPadding: 10; rightPadding: 10
+                        background: Rectangle {
+                            color: win.ui.background; radius: Math.min(4, win.rounding)
+                            border.color: themeNameInput.activeFocus ? win.ui.accent : win.ui.border
+                        }
+                        onTextEdited: themeDialog.error = ""
+                        onAccepted: themeDialog.save()
+                    }
                 }
             }
-            GridLayout {
-                Layout.fillWidth: true
-                columns: 3; columnSpacing: 14; rowSpacing: 12
-                Repeater {
-                    model: themeDialog.fields
-                    Rectangle {
-                        required property var modelData
-                        Layout.fillWidth: true; implicitHeight: 80
-                        color: win.ui.background; border.color: win.ui.border; radius: Math.min(4, win.rounding)
-                        RowLayout {
-                            anchors.fill: parent; anchors.margins: 10; spacing: 10
+            Rectangle { Layout.fillWidth: true; height: 1; color: win.ui.border }
+            // Main Two-Column Studio Workspace
+            RowLayout {
+                Layout.fillWidth: true; Layout.fillHeight: true; spacing: 18
+                // Left Column: 9 Colors + 3 Slide Backgrounds + Heading Emphasis Bar (Fills full available width!)
+                ColumnLayout {
+                    Layout.preferredWidth: 0; Layout.fillWidth: true; Layout.fillHeight: true
+                    spacing: 7
+                    Label {
+                        text: "SLIDE & CODE SYNTAX COLOR ROLES (9 PROPERTIES)"
+                        color: win.ui.accent; font.pixelSize: 11; font.bold: true; font.letterSpacing: 0.8
+                    }
+                    GridLayout {
+                        Layout.fillWidth: true
+                        columns: 3; columnSpacing: 10; rowSpacing: 7
+                        Repeater {
+                            model: themeDialog.fields
                             Rectangle {
-                                width: 38; height: 38; radius: 6
-                                color: themeDialog.colors[modelData.key] || "#000000"
-                                border.color: win.ui.border; border.width: 1
-                                MouseArea {
-                                    anchors.fill: parent; cursorShape: Qt.PointingHandCursor
-                                    onClicked: {
-                                        const picked = deck.pickColor(themeDialog.colors[modelData.key] || "#0067a5")
-                                        if (picked) themeDialog.setColor(modelData.key, picked)
+                                required property var modelData
+                                Layout.preferredWidth: 0; Layout.fillWidth: true; implicitHeight: 70
+                                clip: true
+                                color: win.ui.background; border.color: win.ui.border; radius: Math.min(4, win.rounding)
+                                RowLayout {
+                                    anchors.fill: parent; anchors.margins: 8; spacing: 10
+                                    Rectangle {
+                                        Layout.preferredWidth: 36; Layout.preferredHeight: 36; radius: 6
+                                        color: themeDialog.colors[modelData.key] || "#000000"
+                                        border.color: win.ui.border; border.width: 1
+                                        MouseArea {
+                                            anchors.fill: parent; cursorShape: Qt.PointingHandCursor
+                                            onClicked: {
+                                                const picked = deck.pickColor(themeDialog.colors[modelData.key] || "#0067a5")
+                                                if (picked) themeDialog.setColor(modelData.key, picked)
+                                            }
+                                        }
+                                    }
+                                    ColumnLayout {
+                                        Layout.preferredWidth: 0; Layout.fillWidth: true; spacing: 1
+                                        Label {
+                                            text: modelData.label; color: win.ui.foreground
+                                            font.pixelSize: 12; font.bold: true
+                                            Layout.fillWidth: true; elide: Text.ElideRight
+                                        }
+                                        Label {
+                                            text: modelData.hint; color: win.ui.muted
+                                            font.pixelSize: 11
+                                            Layout.fillWidth: true; elide: Text.ElideRight
+                                        }
+                                        RowLayout {
+                                            Layout.fillWidth: true; spacing: 6
+                                            TextField {
+                                                Layout.preferredWidth: 0; Layout.fillWidth: true; implicitWidth: 96; implicitHeight: 23
+                                                text: themeDialog.colors[modelData.key] || ""
+                                                font.family: "Menlo"; font.pixelSize: 12; color: win.ui.foreground
+                                                leftPadding: 7; rightPadding: 7; topPadding: 1; bottomPadding: 1
+                                                selectByMouse: true
+                                                background: Rectangle {
+                                                    color: win.ui.panel; radius: 3
+                                                    border.color: parent.activeFocus ? win.ui.accent : win.ui.border
+                                                }
+                                                onTextEdited: themeDialog.setColor(modelData.key, text)
+                                            }
+                                            Button {
+                                                Layout.preferredHeight: 23; leftPadding: 8; rightPadding: 8
+                                                text: "Pick Color"
+                                                contentItem: Text {
+                                                    text: parent.text; color: win.ui.foreground; font.pixelSize: 11; font.bold: true
+                                                    horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter
+                                                }
+                                                background: Rectangle {
+                                                    color: parent.hovered ? win.ui.hover : win.ui.button
+                                                    border.color: win.ui.border; radius: 3
+                                                }
+                                                onClicked: {
+                                                    const picked = deck.pickColor(themeDialog.colors[modelData.key] || "#0067a5")
+                                                    if (picked) themeDialog.setColor(modelData.key, picked)
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }
+                        }
+                    }
+                    Label {
+                        Layout.topMargin: 2
+                        text: "AUTOMATIC SLIDE BACKGROUNDS & HEADING EMPHASIS"
+                        color: win.ui.accent; font.pixelSize: 11; font.bold: true; font.letterSpacing: 0.8
+                    }
+                    Repeater {
+                        model: themeDialog.slideBackgroundFields
+                        Rectangle {
+                            id: bgCard
+                            required property var modelData
+                            readonly property var parsedBg: themeDialog.parseBgSpec(
+                                themeDialog.colors[modelData.key],
+                                modelData.role === "middle" ? "bottom-left" : "top")
+                            Layout.fillWidth: true; implicitHeight: 98
+                            clip: true
+                            color: win.ui.background
+                            border.color: themeDialog.previewRole === modelData.role ? win.ui.accent : win.ui.border
+                            border.width: themeDialog.previewRole === modelData.role ? 2 : 1
+                            radius: Math.min(4, win.rounding)
                             ColumnLayout {
-                                Layout.fillWidth: true; spacing: 2
+                                anchors.fill: parent; anchors.margins: 8; spacing: 4
+                                RowLayout {
+                                    Layout.fillWidth: true; spacing: 10
+                                    Label {
+                                        text: bgCard.modelData.label; color: win.ui.foreground
+                                        font.pixelSize: 13; font.bold: true
+                                    }
+                                    Label {
+                                        text: "— " + bgCard.modelData.hint; color: win.ui.muted
+                                        font.pixelSize: 11; Layout.preferredWidth: 0; Layout.fillWidth: true; elide: Text.ElideRight
+                                    }
+                                    Button {
+                                        Layout.preferredHeight: 22; leftPadding: 10; rightPadding: 10
+                                        text: themeDialog.previewRole === bgCard.modelData.role ? "Previewing" : "Preview Slide"
+                                        contentItem: Text {
+                                            text: parent.text
+                                            color: themeDialog.previewRole === bgCard.modelData.role ? win.ui.accentText : win.ui.foreground
+                                            font.pixelSize: 11; font.bold: true
+                                            horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter
+                                        }
+                                        background: Rectangle {
+                                            color: themeDialog.previewRole === bgCard.modelData.role
+                                                 ? win.ui.accent : (parent.hovered ? win.ui.hover : win.ui.button)
+                                            border.color: win.ui.accent; radius: 3
+                                        }
+                                        onClicked: themeDialog.previewRole = bgCard.modelData.role
+                                    }
+                                }
+                                RowLayout {
+                                    Layout.fillWidth: true; spacing: 8
+                                    Label { text: "Position:"; color: win.ui.muted; font.pixelSize: 12; font.bold: true }
+                                    ComboBox {
+                                        id: bgPosCombo
+                                        Layout.preferredWidth: 124; implicitWidth: 124; implicitHeight: 24
+                                        model: themeDialog.positionOptions
+                                        currentIndex: Math.max(0, themeDialog.positionOptions.indexOf(bgCard.parsedBg.pos))
+                                        onActivated: function(index) {
+                                            if (index >= 0) {
+                                                themeDialog.previewRole = bgCard.modelData.role
+                                                themeDialog.updateBgDirective(bgCard.modelData.key, model[index], "", "", false)
+                                            }
+                                        }
+                                        contentItem: Text {
+                                            leftPadding: 8; rightPadding: 8
+                                            text: bgCard.parsedBg.pos; color: win.ui.foreground; font.pixelSize: 12; font.bold: true
+                                            verticalAlignment: Text.AlignVCenter
+                                        }
+                                        background: Rectangle {
+                                            color: bgPosCombo.hovered ? win.ui.hover : win.ui.button
+                                            border.color: win.ui.border; radius: 3
+                                        }
+                                    }
+                                    Label { text: "Size:"; color: win.ui.muted; font.pixelSize: 12; font.bold: true }
+                                    ComboBox {
+                                        id: bgSizeCombo
+                                        Layout.preferredWidth: 76; implicitWidth: 76; implicitHeight: 24
+                                        model: themeDialog.sizeOptions
+                                        currentIndex: Math.max(0, themeDialog.sizeOptions.indexOf(bgCard.parsedBg.size))
+                                        onActivated: function(index) {
+                                            if (index >= 0) {
+                                                themeDialog.previewRole = bgCard.modelData.role
+                                                themeDialog.updateBgDirective(bgCard.modelData.key, "", model[index], "", false)
+                                            }
+                                        }
+                                        contentItem: Text {
+                                            leftPadding: 8; rightPadding: 8
+                                            text: bgCard.parsedBg.size; color: win.ui.foreground; font.pixelSize: 12; font.bold: true
+                                            verticalAlignment: Text.AlignVCenter
+                                        }
+                                        background: Rectangle {
+                                            color: bgSizeCombo.hovered ? win.ui.hover : win.ui.button
+                                            border.color: win.ui.border; radius: 3
+                                        }
+                                    }
+                                    Button {
+                                        Layout.preferredHeight: 24; leftPadding: 10; rightPadding: 10
+                                        text: "Choose Image"
+                                        contentItem: Text {
+                                            text: parent.text; color: win.ui.foreground; font.pixelSize: 11; font.bold: true
+                                            horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter
+                                        }
+                                        background: Rectangle {
+                                            color: parent.hovered ? win.ui.hover : win.ui.button
+                                            border.color: win.ui.border; radius: 3
+                                        }
+                                        onClicked: {
+                                            themeDialog.previewRole = bgCard.modelData.role
+                                            const pickedImg = deck.pickThemeImage()
+                                            if (pickedImg) themeDialog.updateBgDirective(bgCard.modelData.key, "", "", pickedImg, false)
+                                        }
+                                    }
+                                    Button {
+                                        Layout.preferredHeight: 24; leftPadding: 10; rightPadding: 10
+                                        text: "+ Add Image"
+                                        contentItem: Text {
+                                            text: parent.text; color: win.ui.foreground; font.pixelSize: 11; font.bold: true
+                                            horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter
+                                        }
+                                        background: Rectangle {
+                                            color: parent.hovered ? win.ui.hover : win.ui.button
+                                            border.color: win.ui.border; radius: 3
+                                        }
+                                        onClicked: {
+                                            themeDialog.previewRole = bgCard.modelData.role
+                                            const pickedImg = deck.pickThemeImage()
+                                            if (pickedImg) themeDialog.updateBgDirective(bgCard.modelData.key, "top-left", "15%", pickedImg, true)
+                                        }
+                                    }
+                                    Button {
+                                        Layout.preferredHeight: 24; leftPadding: 10; rightPadding: 10
+                                        text: "Clear"
+                                        enabled: (themeDialog.colors[bgCard.modelData.key] || "").length > 0
+                                        contentItem: Text {
+                                            text: parent.text; color: parent.enabled ? win.ui.foreground : win.ui.muted; font.pixelSize: 11
+                                            horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter
+                                        }
+                                        background: Rectangle {
+                                            color: parent.hovered && parent.enabled ? win.ui.hover : win.ui.button
+                                            border.color: win.ui.border; radius: 3
+                                        }
+                                        onClicked: {
+                                            themeDialog.previewRole = bgCard.modelData.role
+                                            themeDialog.setColor(bgCard.modelData.key, "")
+                                        }
+                                    }
+                                    Item { Layout.fillWidth: true }
+                                }
+                                RowLayout {
+                                    Layout.fillWidth: true; spacing: 8
+                                    Label {
+                                        text: "Directive / Text:"
+                                        color: win.ui.muted; font.pixelSize: 12; font.bold: true
+                                    }
+                                    TextField {
+                                        Layout.preferredWidth: 0; Layout.fillWidth: true; implicitWidth: 200; implicitHeight: 28
+                                        text: themeDialog.colors[bgCard.modelData.key] !== undefined ? themeDialog.colors[bgCard.modelData.key] : ""
+                                        placeholderText: "e.g. ![position=top size=20%](logos.png) | ![position=top-left size=6%](orange-bar.png) or [position=bottom-left] Text"
+                                        font.family: "Menlo"; font.pixelSize: 13; color: win.ui.foreground
+                                        leftPadding: 8; rightPadding: 8; topPadding: 2; bottomPadding: 2
+                                        selectByMouse: true
+                                        background: Rectangle {
+                                            color: win.ui.panel; radius: 4
+                                            border.color: parent.activeFocus ? win.ui.accent : win.ui.border
+                                            border.width: parent.activeFocus ? 2 : 1
+                                        }
+                                        onActiveFocusChanged: if (activeFocus) themeDialog.previewRole = bgCard.modelData.role
+                                        onTextEdited: themeDialog.setColor(bgCard.modelData.key, text)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    // 4. Optional Heading Emphasis Bar above specific headings (e.g. ### PART, ### SUPPLEMENT)
+                    Rectangle {
+                        id: headingEmphCard
+                        readonly property bool emphasisEnabled: (themeDialog.colors.heading_emphasis || "").trim().length > 0
+                        Layout.fillWidth: true; implicitHeight: 68
+                        clip: true
+                        color: win.ui.background; border.color: win.ui.border; radius: Math.min(4, win.rounding)
+                        ColumnLayout {
+                            anchors.fill: parent; anchors.margins: 8; spacing: 4
+                            RowLayout {
+                                Layout.fillWidth: true; spacing: 10
                                 Label {
-                                    text: modelData.label; color: win.ui.foreground
-                                    font.pixelSize: 12; font.bold: true
-                                    Layout.fillWidth: true; elide: Text.ElideRight
+                                    text: "4. Heading Emphasis Bar"; color: win.ui.foreground
+                                    font.pixelSize: 13; font.bold: true
                                 }
                                 Label {
-                                    text: modelData.hint; color: win.ui.muted
-                                    font.pixelSize: 11
-                                    Layout.fillWidth: true; elide: Text.ElideRight
+                                    text: "— Optional colored bar drawn above specific section headings (clear or disable to turn off)"
+                                    color: win.ui.muted; font.pixelSize: 11; Layout.preferredWidth: 0; Layout.fillWidth: true; elide: Text.ElideRight
+                                }
+                                Button {
+                                    Layout.preferredHeight: 22; leftPadding: 10; rightPadding: 10
+                                    text: headingEmphCard.emphasisEnabled ? "Enabled (Click to Disable)" : "Disabled (Click to Enable)"
+                                    contentItem: Text {
+                                        text: parent.text
+                                        color: headingEmphCard.emphasisEnabled ? win.ui.accentText : win.ui.foreground
+                                        font.pixelSize: 11; font.bold: true
+                                        horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter
+                                    }
+                                    background: Rectangle {
+                                        color: headingEmphCard.emphasisEnabled ? win.ui.accent : (parent.hovered ? win.ui.hover : win.ui.button)
+                                        border.color: win.ui.accent; radius: 3
+                                    }
+                                    onClicked: {
+                                        themeDialog.previewRole = "middle"
+                                        if (headingEmphCard.emphasisEnabled)
+                                            themeDialog.setColor("heading_emphasis", "")
+                                        else
+                                            themeDialog.setColor("heading_emphasis", "### PART, ### SUPPLEMENT")
+                                    }
+                                }
+                            }
+                            RowLayout {
+                                Layout.fillWidth: true; spacing: 8
+                                Label { text: "Bar Color:"; color: win.ui.muted; font.pixelSize: 12; font.bold: true }
+                                Rectangle {
+                                    Layout.preferredWidth: 24; Layout.preferredHeight: 24; radius: 4
+                                    color: themeDialog.colors.accent_bar || "#e89005"
+                                    border.color: win.ui.border; border.width: 1
+                                    MouseArea {
+                                        anchors.fill: parent; cursorShape: Qt.PointingHandCursor
+                                        onClicked: {
+                                            const picked = deck.pickColor(themeDialog.colors.accent_bar || "#e89005")
+                                            if (picked) themeDialog.setColor("accent_bar", picked)
+                                        }
+                                    }
                                 }
                                 TextField {
-                                    Layout.fillWidth: true; implicitHeight: 24
-                                    text: themeDialog.colors[modelData.key] || ""
+                                    Layout.preferredWidth: 88; implicitWidth: 88; implicitHeight: 24
+                                    text: themeDialog.colors.accent_bar || "#e89005"
                                     font.family: "Menlo"; font.pixelSize: 12; color: win.ui.foreground
                                     leftPadding: 6; rightPadding: 6; topPadding: 2; bottomPadding: 2
                                     selectByMouse: true
@@ -865,61 +1244,278 @@ ApplicationWindow {
                                         color: win.ui.panel; radius: 3
                                         border.color: parent.activeFocus ? win.ui.accent : win.ui.border
                                     }
-                                    onTextEdited: themeDialog.setColor(modelData.key, text)
+                                    onTextEdited: themeDialog.setColor("accent_bar", text)
+                                }
+                                Button {
+                                    Layout.preferredHeight: 24; leftPadding: 8; rightPadding: 8
+                                    text: "Pick Color"
+                                    contentItem: Text {
+                                        text: parent.text; color: win.ui.foreground; font.pixelSize: 11; font.bold: true
+                                        horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter
+                                    }
+                                    background: Rectangle {
+                                        color: parent.hovered ? win.ui.hover : win.ui.button
+                                        border.color: win.ui.border; radius: 3
+                                    }
+                                    onClicked: {
+                                        const picked = deck.pickColor(themeDialog.colors.accent_bar || "#e89005")
+                                        if (picked) themeDialog.setColor("accent_bar", picked)
+                                    }
+                                }
+                                Label {
+                                    text: "Above Headings Starting With:"
+                                    color: win.ui.muted; font.pixelSize: 12; font.bold: true
+                                }
+                                TextField {
+                                    Layout.preferredWidth: 0; Layout.fillWidth: true; implicitWidth: 160; implicitHeight: 24
+                                    text: themeDialog.colors.heading_emphasis !== undefined ? themeDialog.colors.heading_emphasis : ""
+                                    placeholderText: "e.g. ### PART, ### SUPPLEMENT (leave empty for none)"
+                                    font.family: "Menlo"; font.pixelSize: 13; color: win.ui.foreground
+                                    leftPadding: 8; rightPadding: 8; topPadding: 2; bottomPadding: 2
+                                    selectByMouse: true
+                                    background: Rectangle {
+                                        color: win.ui.panel; radius: 3
+                                        border.color: parent.activeFocus ? win.ui.accent : win.ui.border
+                                    }
+                                    onActiveFocusChanged: if (activeFocus) themeDialog.previewRole = "middle"
+                                    onTextEdited: themeDialog.setColor("heading_emphasis", text)
                                 }
                             }
                         }
                     }
+                    Item { Layout.fillHeight: true }
                 }
-            }
-            Rectangle {
-                Layout.fillWidth: true; implicitHeight: 112
-                color: themeDialog.colors.background || "#ffffff"
-                border.color: win.ui.border; radius: 6
-                RowLayout {
-                    anchors.fill: parent; anchors.margins: 16; spacing: 18
-                    ColumnLayout {
-                        Layout.fillWidth: true; spacing: 4
-                        Text {
-                            text: "Live Slide Preview"
-                            color: themeDialog.colors.accent || "#0067a5"
-                            font.pixelSize: 20; font.bold: true
-                        }
-                        Text {
-                            text: "Subheadings & symbols · Body text & tables"
-                            color: themeDialog.colors.cyan || "#00798c"
-                            font.pixelSize: 13; font.bold: true
-                        }
-                        Text {
-                            text: "Regular slide paragraph text adapts immediately to your palette."
-                            color: themeDialog.colors.foreground || "#1e293b"
-                            font.pixelSize: 13; elide: Text.ElideRight; Layout.fillWidth: true
+                // Right Column: Live First / Middle / Last Slide Preview + Reference Guide
+                ColumnLayout {
+                    Layout.preferredWidth: 440; Layout.minimumWidth: 400; Layout.maximumWidth: 460
+                    Layout.fillHeight: true; spacing: 10
+                    Label {
+                        text: "LIVE SLIDE PREVIEW — SELECT SLIDE TYPE"
+                        color: win.ui.accent; font.pixelSize: 11; font.bold: true; font.letterSpacing: 0.8
+                    }
+                    RowLayout {
+                        Layout.fillWidth: true; spacing: 8
+                        Repeater {
+                            model: [
+                                { role: "first", label: "First Slide" },
+                                { role: "middle", label: "Middle Slide" },
+                                { role: "last", label: "Last Slide" }
+                            ]
+                            Button {
+                                required property var modelData
+                                readonly property bool activeRole: themeDialog.previewRole === modelData.role
+                                Layout.preferredWidth: 0; Layout.fillWidth: true; implicitHeight: 32
+                                text: modelData.label
+                                contentItem: Text {
+                                    text: parent.text
+                                    color: parent.activeRole ? win.ui.accentText : win.ui.foreground
+                                    font.pixelSize: 13; font.bold: true
+                                    horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter
+                                }
+                                background: Rectangle {
+                                    color: parent.activeRole ? win.ui.accent : (parent.hovered ? win.ui.hover : win.ui.button)
+                                    border.color: parent.activeRole ? win.ui.accent : win.ui.border
+                                    radius: Math.min(4, win.rounding)
+                                }
+                                onClicked: themeDialog.previewRole = modelData.role
+                            }
                         }
                     }
+                    // 16:9 Live Preview Slide Canvas
                     Rectangle {
-                        Layout.preferredWidth: 250; Layout.fillHeight: true; radius: 8
-                        color: (themeDialog.colors.accent || "").toLowerCase() === "#0067a5" ? "#1c2430" : Qt.darker(themeDialog.colors.background || "#1a1b26", 1.15)
-                        border.color: win.ui.border
+                        id: previewCanvas
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: width * 9 / 16
+                        color: themeDialog.colors.background || "#ffffff"
+                        border.color: win.ui.border; border.width: 1; radius: 6
+                        clip: true
+                        readonly property string activeBgKey:
+                            themeDialog.previewRole === "first" ? "first_slide_background"
+                            : themeDialog.previewRole === "last" ? "last_slide_background"
+                            : "middle_slides_background"
+                        readonly property var bgList: themeDialog.parseBgList(
+                            themeDialog.colors[activeBgKey],
+                            themeDialog.previewRole === "middle" ? "bottom-left" : "top")
+                        Repeater {
+                            model: previewCanvas.bgList
+                            Item {
+                                id: bgPreviewItem
+                                required property var modelData
+                                anchors.fill: parent
+                                Image {
+                                    id: previewBgImage
+                                    visible: bgPreviewItem.modelData.isImage && status === Image.Ready
+                                    source: bgPreviewItem.modelData.isImage
+                                            ? deck.resolveThemeImageUrl(bgPreviewItem.modelData.file) : ""
+                                    fillMode: Image.PreserveAspectFit
+                                    width: parent.width * Math.max(0.05, Math.min(0.9, bgPreviewItem.modelData.sizeNum / 100.0))
+                                    height: parent.height * Math.max(0.05, Math.min(0.9, bgPreviewItem.modelData.sizeNum / 100.0))
+                                    x: bgPreviewItem.modelData.pos.indexOf("left") >= 0 ? 14
+                                     : bgPreviewItem.modelData.pos.indexOf("right") >= 0 ? parent.width - width - 14
+                                     : (parent.width - width) / 2
+                                    y: bgPreviewItem.modelData.pos.indexOf("top") >= 0 ? (bgPreviewItem.modelData.file === "orange-bar.png" ? 26 : 12)
+                                     : bgPreviewItem.modelData.pos.indexOf("bottom") >= 0 ? parent.height - height - 12
+                                     : (parent.height - height) / 2
+                                }
+                                Rectangle {
+                                    visible: bgPreviewItem.modelData.isImage && previewBgImage.status !== Image.Ready
+                                    width: Math.min(parent.width - 28, bgFileBadge.implicitWidth + 16)
+                                    height: 22; radius: 4
+                                    color: Qt.alpha(themeDialog.colors.accent || "#0067a5", 0.14)
+                                    border.color: themeDialog.colors.accent || "#0067a5"
+                                    x: bgPreviewItem.modelData.pos.indexOf("left") >= 0 ? 14
+                                     : bgPreviewItem.modelData.pos.indexOf("right") >= 0 ? parent.width - width - 14
+                                     : (parent.width - width) / 2
+                                    y: bgPreviewItem.modelData.pos.indexOf("top") >= 0 ? 12
+                                     : bgPreviewItem.modelData.pos.indexOf("bottom") >= 0 ? parent.height - height - 12
+                                     : (parent.height - height) / 2
+                                    Text {
+                                        id: bgFileBadge
+                                        anchors.centerIn: parent
+                                        text: bgPreviewItem.modelData.file + " (" + bgPreviewItem.modelData.pos + ", " + bgPreviewItem.modelData.size + ")"
+                                        color: themeDialog.colors.accent || "#0067a5"
+                                        font.family: "Menlo"; font.pixelSize: 10; font.bold: true
+                                    }
+                                }
+                                Text {
+                                    visible: !bgPreviewItem.modelData.isImage
+                                    text: bgPreviewItem.modelData.text
+                                    color: themeDialog.colors.dark_foreground || "#8b949e"
+                                    font.pixelSize: 11; font.bold: true
+                                    width: parent.width - 28
+                                    x: 14
+                                    horizontalAlignment: bgPreviewItem.modelData.pos.indexOf("left") >= 0 ? Text.AlignLeft
+                                                       : bgPreviewItem.modelData.pos.indexOf("right") >= 0 ? Text.AlignRight
+                                                       : Text.AlignHCenter
+                                    y: bgPreviewItem.modelData.pos.indexOf("top") >= 0 ? 12
+                                     : bgPreviewItem.modelData.pos.indexOf("bottom") >= 0 ? parent.height - 24
+                                     : (parent.height - 16) / 2
+                                }
+                            }
+                        }
+                        // FIRST SLIDE PREVIEW CONTENT
                         ColumnLayout {
-                            anchors.fill: parent; anchors.margins: 10; spacing: 2
+                            visible: themeDialog.previewRole === "first"
+                            anchors.centerIn: parent; anchors.verticalCenterOffset: 10
+                            width: parent.width - 36; spacing: 6
                             Text {
-                                font.family: "Menlo"; font.pixelSize: 11
-                                textFormat: Text.RichText
-                                text: "<span style='color:" + (themeDialog.colors.magenta || "#bb9af7") + "'>def</span> " +
-                                      "<span style='color:" + (themeDialog.colors.accent || "#7aa2f7") + "'>dock</span>(" +
-                                      "<span style='color:" + (themeDialog.colors.yellow || "#e0af68") + "'>Mol</span>):"
+                                Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter
+                                text: "Command Line, API & MCP"
+                                color: themeDialog.colors.accent || "#0067a5"
+                                font.pixelSize: 20; font.bold: true; elide: Text.ElideRight
                             }
                             Text {
-                                font.family: "Menlo"; font.pixelSize: 11
-                                textFormat: Text.RichText
-                                text: "  <span style='color:" + (themeDialog.colors.dark_foreground || "#787c99") + "'># comment</span>"
+                                Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter
+                                text: "(Subheadings & Symbols Color)"
+                                color: themeDialog.colors.cyan || "#00798c"
+                                font.pixelSize: 13; font.bold: true; elide: Text.ElideRight
                             }
                             Text {
-                                font.family: "Menlo"; font.pixelSize: 11
-                                textFormat: Text.RichText
-                                text: "  <span style='color:" + (themeDialog.colors.green || "#9ece6a") + "'>\"pose.sdf\"</span>, " +
-                                      "<span style='color:" + (themeDialog.colors.red || "#f7768e") + "'>50</span>"
+                                Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter
+                                text: "Body Text Color · First Slide Preview"
+                                color: themeDialog.colors.foreground || "#1e293b"
+                                font.pixelSize: 12; elide: Text.ElideRight
                             }
+                        }
+                        // MIDDLE SLIDE PREVIEW CONTENT
+                        ColumnLayout {
+                            visible: themeDialog.previewRole === "middle"
+                            anchors.fill: parent; anchors.margins: 18; spacing: 5
+                            Rectangle {
+                                visible: headingEmphCard.emphasisEnabled
+                                width: 32; height: 5; radius: 1
+                                color: themeDialog.colors.accent_bar || "#e89005"
+                            }
+                            Text {
+                                text: headingEmphCard.emphasisEnabled
+                                      ? ("Section Subheading (" + (themeDialog.colors.heading_emphasis || "### PART") + ")")
+                                      : "Section Subheading (Subheadings & Symbols)"
+                                color: themeDialog.colors.cyan || "#00798c"
+                                font.pixelSize: 12; font.bold: true; Layout.fillWidth: true; elide: Text.ElideRight
+                            }
+                            Text {
+                                text: "Middle Slide Heading (Headings & Bold)"
+                                color: themeDialog.colors.accent || "#0067a5"
+                                font.pixelSize: 16; font.bold: true; Layout.fillWidth: true; elide: Text.ElideRight
+                            }
+                            Text {
+                                text: "• Regular bullet points, paragraphs & table rows use Body Text."
+                                color: themeDialog.colors.foreground || "#1e293b"
+                                font.pixelSize: 11; Layout.fillWidth: true; elide: Text.ElideRight
+                            }
+                            Rectangle {
+                                Layout.fillWidth: true; Layout.preferredHeight: 68; radius: 6
+                                color: ((themeNameInput.text || "").toLowerCase().startsWith("lecture") ||
+                                        (themeDialog.colors.accent || "").toLowerCase() === "#0067a5")
+                                       ? "#1c2430" : Qt.darker(themeDialog.colors.background || "#1a1b26", 1.18)
+                                border.color: win.ui.border
+                                ColumnLayout {
+                                    anchors.fill: parent; anchors.margins: 8; spacing: 2
+                                    Text {
+                                        font.family: "Menlo"; font.pixelSize: 11; textFormat: Text.RichText
+                                        text: "<span style='color:" + (themeDialog.colors.magenta || "#56b6c2") + "'>def</span> " +
+                                              "<span style='color:" + (themeDialog.colors.accent || "#61afef") + "'>dock</span>(" +
+                                              "<span style='color:" + (themeDialog.colors.yellow || "#e5c07b") + "'>Ligand</span>):"
+                                    }
+                                    Text {
+                                        font.family: "Menlo"; font.pixelSize: 11; textFormat: Text.RichText
+                                        text: "    <span style='color:" + (themeDialog.colors.dark_foreground || "#8b949e") + "'># Code comment in Code Comments color</span>"
+                                    }
+                                    Text {
+                                        font.family: "Menlo"; font.pixelSize: 11; textFormat: Text.RichText
+                                        text: "    <span style='color:" + (themeDialog.colors.magenta || "#56b6c2") + "'>return</span> " +
+                                              "<span style='color:" + (themeDialog.colors.green || "#98c379") + "'>\"pose.sdf\"</span>, " +
+                                              "<span style='color:" + (themeDialog.colors.red || "#e5c07b") + "'>50</span>"
+                                    }
+                                }
+                            }
+                            Item { Layout.fillHeight: true }
+                        }
+                        // LAST SLIDE PREVIEW CONTENT
+                        ColumnLayout {
+                            visible: themeDialog.previewRole === "last"
+                            anchors.centerIn: parent; anchors.verticalCenterOffset: 8
+                            width: parent.width - 36; spacing: 6
+                            Text {
+                                Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter
+                                text: "Thank you for your attention"
+                                color: themeDialog.colors.accent || "#0067a5"
+                                font.pixelSize: 20; font.bold: true; elide: Text.ElideRight
+                            }
+                            Text {
+                                Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter
+                                text: "Questions and discussion"
+                                color: themeDialog.colors.cyan || "#00798c"
+                                font.pixelSize: 14; font.bold: true; elide: Text.ElideRight
+                            }
+                        }
+                    }
+                    // Informative Reference Card
+                    Rectangle {
+                        Layout.fillWidth: true; Layout.fillHeight: true
+                        color: win.ui.background; border.color: win.ui.border; radius: 6
+                        ColumnLayout {
+                            anchors.fill: parent; anchors.margins: 12; spacing: 6
+                            Label {
+                                text: "SLIDE BACKGROUND & PLACEMENT GUIDE"
+                                color: win.ui.accent; font.pixelSize: 11; font.bold: true; font.letterSpacing: 0.6
+                            }
+                            Label {
+                                Layout.fillWidth: true; wrapMode: Text.WordWrap
+                                color: win.ui.foreground; font.pixelSize: 12
+                                text: "• Place a Logo or Picture:\n  ![position=top size=20%](logos.png)\n  ![position=bottom-right size=28%](intro-2.png)"
+                            }
+                            Label {
+                                Layout.fillWidth: true; wrapMode: Text.WordWrap
+                                color: win.ui.foreground; font.pixelSize: 12
+                                text: "• Place Automatic Background Text:\n  [position=bottom-left size=20px] Cheminformatics Lecture"
+                            }
+                            Label {
+                                Layout.fillWidth: true; wrapMode: Text.WordWrap
+                                color: win.ui.muted; font.pixelSize: 11
+                                text: "• Combine Multiple Items on One Slide Role with | :\n  ![position=top size=20%](logos.png) | [position=bottom size=18px] Marko Jukić\n• Available Positions: top-left, top, top-right, left, center, right, bottom-left, bottom, bottom-right."
+                            }
+                            Item { Layout.fillHeight: true }
                         }
                     }
                 }
@@ -928,32 +1524,39 @@ ApplicationWindow {
                 Layout.fillWidth: true; visible: text.length > 0
                 text: themeDialog.error; color: win.ui.error; font.pixelSize: 13; wrapMode: Text.Wrap
             }
+            Rectangle { Layout.fillWidth: true; height: 1; color: win.ui.border }
             RowLayout {
                 Layout.fillWidth: true; spacing: 10
                 Label {
-                    text: "Tip: Click any color square to open the macOS color wheel"
+                    text: "Tip: Click any color swatch or 'Pick Color' to open the macOS color wheel"
                     color: win.ui.muted; font.pixelSize: 12
                 }
                 Item { Layout.fillWidth: true }
                 Button {
-                    id: cancelThemeBtn; text: "Cancel"; implicitHeight: 38; implicitWidth: 90
-                    contentItem: Text { text: parent.text; color: win.ui.foreground; font.pixelSize: 14; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
+                    id: resetThemeBtn; text: "Reset to Saved"; implicitHeight: 36; leftPadding: 14; rightPadding: 14
+                    contentItem: Text { text: parent.text; color: win.ui.foreground; font.pixelSize: 13; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
+                    background: Rectangle { color: resetThemeBtn.hovered ? win.ui.hover : win.ui.button; radius: Math.min(4, win.rounding); border.color: win.ui.border }
+                    onClicked: themeDialog.loadExistingTheme(existingThemeSelector.displayText || deck.themeName)
+                }
+                Button {
+                    id: cancelThemeBtn; text: "Cancel"; implicitHeight: 36; implicitWidth: 90
+                    contentItem: Text { text: parent.text; color: win.ui.foreground; font.pixelSize: 13; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
                     background: Rectangle { color: cancelThemeBtn.hovered ? win.ui.hover : win.ui.button; radius: Math.min(4, win.rounding); border.color: win.ui.border }
                     onClicked: themeDialog.close()
                 }
                 Button {
                     id: copyThemeBtn
                     visible: !themeDialog.creatingNew
-                    text: "Save as Copy"; implicitHeight: 38; implicitWidth: 120
-                    contentItem: Text { text: parent.text; color: win.ui.foreground; font.pixelSize: 14; font.bold: true; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
+                    text: "Save as New Copy"; implicitHeight: 36; leftPadding: 14; rightPadding: 14
+                    contentItem: Text { text: parent.text; color: win.ui.foreground; font.pixelSize: 13; font.bold: true; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
                     background: Rectangle { color: copyThemeBtn.hovered ? win.ui.hover : win.ui.button; radius: Math.min(4, win.rounding); border.color: win.ui.accent }
                     onClicked: themeDialog.saveAsCopy()
                 }
                 Button {
                     id: saveThemeBtn
-                    text: themeDialog.creatingNew ? "Create & Apply" : "Save Theme"
-                    implicitHeight: 38; implicitWidth: 140
-                    contentItem: Text { text: parent.text; color: win.ui.accentText; font.pixelSize: 14; font.bold: true; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
+                    text: themeDialog.creatingNew ? "Create & Apply Theme" : "Save & Apply Theme"
+                    implicitHeight: 36; leftPadding: 16; rightPadding: 16
+                    contentItem: Text { text: parent.text; color: win.ui.accentText; font.pixelSize: 13; font.bold: true; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
                     background: Rectangle { color: saveThemeBtn.hovered ? win.ui.accentHover : win.ui.accent; radius: Math.min(4, win.rounding) }
                     onClicked: themeDialog.save()
                 }
@@ -1287,49 +1890,19 @@ ApplicationWindow {
                 Accessible.name: qsTr("Theme: %1").arg(deck.themeName)
                 ToolTip.visible: hovered; ToolTip.text: qsTr("Theme: %1").arg(deck.themeName)
                 delegate: ItemDelegate {
-                    id: themeRow
                     required property string modelData
                     required property int index
                     readonly property bool isAction: index >= deck.themeNames.length
                     width: themes.popup.availableWidth
                     text: modelData
                     highlighted: themes.highlightedIndex === index
-                    contentItem: RowLayout {
-                        spacing: 6
-                        Text {
-                            Layout.fillWidth: true
-                            text: themeRow.modelData
-                            color: themeRow.isAction ? win.ui.accent : win.ui.foreground
-                            font.family: themes.font.family
-                            font.pixelSize: themes.font.pixelSize
-                            font.bold: themeRow.isAction || themeRow.modelData === deck.themeName
-                            verticalAlignment: Text.AlignVCenter
-                            elide: Text.ElideRight
-                        }
-                        Rectangle {
-                            visible: !themeRow.isAction
-                            Layout.preferredWidth: 42; Layout.preferredHeight: 22
-                            radius: 4
-                            color: editThemeMouse.containsMouse ? win.ui.accent : Qt.alpha(win.ui.border, 0.45)
-                            Text {
-                                anchors.centerIn: parent
-                                text: "Edit"
-                                font.pixelSize: 11; font.bold: true
-                                color: editThemeMouse.containsMouse ? win.ui.accentText : win.ui.foreground
-                            }
-                            MouseArea {
-                                id: editThemeMouse
-                                anchors.fill: parent
-                                hoverEnabled: true
-                                cursorShape: Qt.PointingHandCursor
-                                onClicked: function(mouse) {
-                                    mouse.accepted = true
-                                    const targetTheme = themeRow.modelData
-                                    themes.popup.close()
-                                    Qt.callLater(function() { themeDialog.openEditor(targetTheme, false) })
-                                }
-                            }
-                        }
+                    contentItem: Text {
+                        text: modelData
+                        color: parent.isAction ? win.ui.accent : win.ui.foreground
+                        font.family: themes.font.family
+                        font.pixelSize: themes.font.pixelSize
+                        font.bold: parent.isAction
+                        verticalAlignment: Text.AlignVCenter
                     }
                     background: Rectangle {
                         color: parent.highlighted ? win.ui.hover : win.ui.panel
@@ -1355,7 +1928,7 @@ ApplicationWindow {
                     }
                 }
                 popup: Popup {
-                    y: themes.height + 4; width: 260; padding: 6
+                    y: themes.height + 4; width: 240; padding: 6
                     height: Math.min(contentItem.implicitHeight + 12, 460, win.height - 100)
                     background: Rectangle { color: win.ui.panel; border.color: win.ui.border; radius: win.rounding }
                     contentItem: ListView {
